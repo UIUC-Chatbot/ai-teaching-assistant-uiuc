@@ -59,8 +59,10 @@ class TA_Pipeline():
     # print('\n\n'.join(top_context_list))
     return top_context_list
   
-  def OPT(self, top_context_list):
+  def OPT(self, top_context_list, print_answers_to_stdout: bool = True):
     """ Run OPT """
+    
+    # todo: guard against loading twice.
     self._load_opt()
     
     response_list = []
@@ -74,8 +76,9 @@ class TA_Pipeline():
       opt_answer = response.split("Answer:")[1]
       response_list.append(opt_answer)
     
-    print("Generated Answers:")
-    print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
+    if print_answers_to_stdout:
+      print("Generated Answers:")
+      print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
     return response_list
   
   def _load_opt(self):
