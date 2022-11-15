@@ -21,6 +21,9 @@ class TA_Gradio():
         wandb.init(project="First_TA_Chatbot", entity="kastan")
         self.results_table = wandb.Table(columns=["question", "user_supplied_context", "generated_answers", "retrieved_contexts", "scores", "runtime (seconds)"])
         self.ta = main.TA_Pipeline()
+        
+    def run_clip(self, user_question:str, num_images_returned: int = 4):
+        return self.ta.clip(user_question, num_images_returned)
 
     def question_answer(self, question, context, image=None):
         start_time = time.monotonic()
@@ -64,7 +67,7 @@ class TA_Gradio():
         
         # my_df = pd.DataFrame({"question": question, "user_supplied_context": context, "generated_answers": generated_answers_list, "retrieved_contexts": top_context_list, "scores": final_scores, 'runtime (seconds)': time.monotonic() - start_time})
         # wandb.log({"Full inputs and results": my_df})
-        return pd.DataFrame(results).sort_values(by=['Score'], ascending=False)
+        return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), self.run_clip(question, 4)
 
     def main(self,):
         with gr.Blocks() as input_blocks:
@@ -75,8 +78,8 @@ class TA_Gradio():
             flagging_dir='user-flagged-to-review',
             
             ''' Main user input section '''
-            with gr.Row(equal_height=True):
-                with gr.Column(scale=2.6, equal_height=True):
+            with gr.Row():
+                with gr.Column(scale=2.6):
                     search_question = gr.Textbox(label="Search\n", placeholder="Ask me anything...",)
                     context = gr.Textbox(label="(Optional) give a relevant textbook paragraph for specific questions", placeholder="(Optional) we'll use the paragraph to generate an answer to your question.")
                     # gr.Markdown("""Try searching for:""")
@@ -92,19 +95,34 @@ class TA_Gradio():
                 # create a button with an orange background
                 # run = gr.Button("Search 🔍", style='')
                 run = gr.Button("Search  🔍", variant='primary',)
+                # run_reverse_img_search = gr.Button("Image search", variant='secondary',)
                 
 
-            ''' RESULTS SECTION (below)'''
+            ''' RESULTS SECTION, run text search '''
             with gr.Row(equal_height=True):
                 gr.Markdown("""## Results""")
             event = run.click(
                 fn=self.question_answer, 
                 inputs=[search_question, context, image], 
                 outputs=[gr.Dataframe(
-                    headers=["Answer", "Score", "Contexts"],
+                    headers=["Answer", "Score", "Context"],
                     wrap=True,
-                    )], 
+                    ), 
+                    gr.Gallery(
+                    label="Lecture images", show_label=False, elem_id="gallery"
+                    ).style(grid=[2], height="auto")], 
                 scroll_to_output=True)
+            
+            ''' Reverse image search '''
+            # event_2 = run_reverse_img_search.click(
+            #     fn=self.run_clip, 
+            #     inputs=[search_question],  # question, num_images_returned
+            #     outputs=[gr.Gallery(
+            #         label="Lecture images", show_label=False, elem_id="gallery"
+            #         ).style(grid=[2], height="auto")], 
+            #     scroll_to_output=True)
+
+            
 
         input_blocks.queue(concurrency_count=2) # limit concurrency
         input_blocks.launch(share=True)

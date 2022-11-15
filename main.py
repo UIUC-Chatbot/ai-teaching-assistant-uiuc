@@ -5,13 +5,17 @@ from typing import List, Dict, Any
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 import contriever.contriever_final # Asmita's contriever
+import torch
 
 # for OPT
 from transformers import GPT2Tokenizer, OPTForCausalLM
-import torch
 
 # for re-ranking MS-Marco
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# for CLIP
+import clip
+from PIL import Image
 
 ########################
 ####  CHANGE ME 😁  ####
@@ -26,13 +30,14 @@ class TA_Pipeline():
     
     # init to reasonable defaults (these will typically be overwritten when invoked)
     self.user_question = USER_QUESTION
-    self.num_answers_generated = NUM_ANSWERS_GENERATED
+    # self.num_answers_generated = NUM_ANSWERS_GENERATED
     self.max_text_length = MAX_TEXT_LENGTH
     
     self.contriever_is_initted = False # todo: load contriever better?
     self.opt_is_initted = False
     self.ms_marco_is_initted = False
     self.doc_query_is_initted = False
+    self.clip_is_initted = False
     
     # DocQuery properties (high RAM)
     self.pipeline = None
@@ -120,11 +125,11 @@ class TA_Pipeline():
     global opt_model
     global opt_tokenizer
 
-    opt_model = OPTForCausalLM.from_pretrained("facebook/opt-1.3b").to('cuda') # 1.3b works on my server. 125m is smallest.
-    opt_tokenizer = GPT2Tokenizer.from_pretrained("facebook/opt-1.3b")
+    opt_model = OPTForCausalLM.from_pretrained("facebook/opt-350m").to('cuda') # 1.3b works on my server. 125m is smallest.
+    opt_tokenizer = GPT2Tokenizer.from_pretrained("facebook/opt-350m")
     self.opt_is_initted = True
 
-  def re_ranking_ms_marco(self, response_list):
+  def re_ranking_ms_marco(self, response_list: List):
     
     # only init once
     if not self.ms_marco_is_initted:
@@ -133,9 +138,7 @@ class TA_Pipeline():
     else:
       print("NOT initting ms_marco")
     
-    assert len([USER_QUESTION] * NUM_ANSWERS_GENERATED ) == len(response_list)
-
-    features = rerank_msmarco_tokenizer([USER_QUESTION] * NUM_ANSWERS_GENERATED, response_list,  padding=True, truncation=True, return_tensors="pt")
+    features = rerank_msmarco_tokenizer([USER_QUESTION] * len(response_list), response_list,  padding=True, truncation=True, return_tensors="pt")
 
     rerank_msmarco_model.eval()
     with torch.no_grad():
@@ -168,3 +171,58 @@ class TA_Pipeline():
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime
     self.doc = document.load_document("../data-generator/notes/Student_Notes.pdf")
     self.doc_query_is_initted = True
+    
+  def clip(self, search_question: str, num_images_returned: int = 3):
+    """ Run CLIP. """
+    if not self.clip_is_initted:
+      print("initing clip model...")
+      self._load_clip()
+    else:
+      print("NOT initting clip")
+      
+    # Prepare the inputs
+    SLIDES_DIR = "../main_fn/lecture_slides/"
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    ppts = list(os.listdir(SLIDES_DIR))
+    #print(ppts, len(ppts))
+    text_inputs = torch.cat([clip.tokenize(search_question)]).to(device)
+    res = []
+    for i in ppts:
+      #print(i)
+      imgs = list(os.listdir(SLIDES_DIR+i))
+      image_input = torch.cat([clip_preprocess(Image.open(SLIDES_DIR+i+'/'+image)).unsqueeze(0) for image in imgs]).to(device)
+
+      with torch.no_grad():
+        image_features = clip_model.encode_image(image_input)
+        text_features = clip_model.encode_text(text_inputs)
+
+      # Pick the top 3 most similar labels for the image
+      image_features /= image_features.norm(dim=-1, keepdim=True)
+      text_features /= text_features.norm(dim=-1, keepdim=True)
+      similarity = (100.0 * text_features @ image_features.T).softmax(dim=-1)
+      values, indices = similarity[0].topk(3)
+
+      for val, index in zip(values,indices):
+        # print(f"Image Name:{imgs[index]}\tSimilarity:{val}")
+        res.append([i, imgs[index], val])
+    
+    # ans should have no of folders * 3 slides 
+    ans = sorted(res,key=lambda x:x[2], reverse=True)
+    print(ans[:3])
+    
+    img_list_to_return = []
+    for i in range(num_images_returned):
+      img_list_to_return.append(Image.open(SLIDES_DIR+ans[i][0]+"/"+ans[i][1]))
+    return img_list_to_return
+    
+  
+  def _load_clip(self):
+    global clip_model
+    global clip_preprocess
+    
+    # Load the model
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Running on: ", device)
+    clip_model, clip_preprocess = clip.load('ViT-B/32', device)
+    self.clip_is_initted = True
