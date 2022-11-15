@@ -1,6 +1,7 @@
 import sys
 import os
 import json
+from typing import List, Dict, Any
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 import contriever.contriever_final # Asmita's contriever
@@ -17,7 +18,8 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 ########################
 USER_QUESTION = 'What are the inputs and outputs of a Gray code counter?'
 NUM_ANSWERS_GENERATED = 5
-MAX_TEXT_LENGTH = 512
+# MAX_TEXT_LENGTH = 512
+MAX_TEXT_LENGTH = 768
 
 class TA_Pipeline():
   def __init__(self):
@@ -26,6 +28,11 @@ class TA_Pipeline():
     self.user_question = USER_QUESTION
     self.num_answers_generated = NUM_ANSWERS_GENERATED
     self.max_text_length = MAX_TEXT_LENGTH
+    
+    self.contriever_is_initted = False # todo: load contriever better?
+    self.opt_is_initted = False
+    self.ms_marco_is_initted = False
+    self.doc_query_is_initted = False
     
     # DocQuery properties (high RAM)
     self.pipeline = None
@@ -39,7 +46,7 @@ class TA_Pipeline():
     self.user_question = user_question
     self.num_answers_generated = num_answers_generated
     
-    print("User question: ", USER_QUESTION)
+    print("User question: ", user_question)
     my_contriever = contriever.contriever_final.ContrieverCB()
     contriever_contexts = my_contriever.retrieve_topk(USER_QUESTION, path_to_json = "../data-generator/split_textbook/paragraphs.json", k = num_answers_generated)
     top_context_list = self._contriever_clean_contexts(list(contriever_contexts.values()))
@@ -59,16 +66,43 @@ class TA_Pipeline():
     # print('\n\n'.join(top_context_list))
     return top_context_list
   
-  def OPT(self, top_context_list, print_answers_to_stdout: bool = True):
+  def OPT(self, user_question: str = USER_QUESTION, top_context_list: List = None, num_answers_generated: int = NUM_ANSWERS_GENERATED,  print_answers_to_stdout: bool = True):
     """ Run OPT """
     
-    # todo: guard against loading twice.
-    self._load_opt()
+    if not self.opt_is_initted:
+      print("initing OPT model...")
+      self._load_opt()
+    else:
+      print("NOT initting OPT")
     
     response_list = []
-    assert NUM_ANSWERS_GENERATED == len(top_context_list)
-    for i in range(NUM_ANSWERS_GENERATED):
-      prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + top_context_list[i] + '\n' + "Question: " + USER_QUESTION + '\n' + "Answer: "
+    assert num_answers_generated == len(top_context_list)
+    for i in range(num_answers_generated):
+      prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + top_context_list[i] + '\n' + "Question: " + user_question + '\n' + "Answer: "
+      inputs = opt_tokenizer(prompt, return_tensors="pt").to("cuda")
+      
+      generate_ids = opt_model.generate(inputs.input_ids, max_length=MAX_TEXT_LENGTH, do_sample=True, top_k=10, top_p=0.95, temperature=0.95, num_return_sequences=1, repetition_penalty=1.2, length_penalty=1.5, pad_token_id=opt_tokenizer.eos_token_id)
+      response = opt_tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
+      opt_answer = response.split("Answer:")[1]
+      response_list.append(opt_answer)
+    
+    if print_answers_to_stdout:
+      print("Generated Answers:")
+      print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
+    return response_list
+
+  def OPT_one_question_multiple_answers(self, user_question: str = USER_QUESTION, context: str = '', num_answers_generated: int = NUM_ANSWERS_GENERATED, print_answers_to_stdout: bool = True):
+    """ Run OPT """
+    
+    if not self.opt_is_initted:
+      print("initing OPT model...")
+      self._load_opt()
+    else:
+      print("NOT initting OPT")
+
+    response_list = []
+    for i in range(num_answers_generated):
+      prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + context + '\n' + "Question: " + user_question + '\n' + "Answer: "
       inputs = opt_tokenizer(prompt, return_tensors="pt").to("cuda")
       
       generate_ids = opt_model.generate(inputs.input_ids, max_length=MAX_TEXT_LENGTH, do_sample=True, top_k=50, top_p=0.95, temperature=0.95, num_return_sequences=1, repetition_penalty=1.2, length_penalty=1.2, pad_token_id=opt_tokenizer.eos_token_id)
@@ -86,11 +120,19 @@ class TA_Pipeline():
     global opt_model
     global opt_tokenizer
 
-    opt_model = OPTForCausalLM.from_pretrained("facebook/opt-1.3b").to('cuda') # or use opt-350m
+    opt_model = OPTForCausalLM.from_pretrained("facebook/opt-1.3b").to('cuda') # 1.3b works on my server. 125m is smallest.
     opt_tokenizer = GPT2Tokenizer.from_pretrained("facebook/opt-1.3b")
+    self.opt_is_initted = True
 
   def re_ranking_ms_marco(self, response_list):
-    self._load_reranking_ms_marco()
+    
+    # only init once
+    if not self.ms_marco_is_initted:
+      print("initing ms_marco model...")
+      self._load_reranking_ms_marco()
+    else:
+      print("NOT initting ms_marco")
+    
     assert len([USER_QUESTION] * NUM_ANSWERS_GENERATED ) == len(response_list)
 
     features = rerank_msmarco_tokenizer([USER_QUESTION] * NUM_ANSWERS_GENERATED, response_list,  padding=True, truncation=True, return_tensors="pt")
@@ -107,6 +149,7 @@ class TA_Pipeline():
 
     rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
     rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    self.ms_marco_is_initted = True
     
   def doc_query(self, user_question:str = USER_QUESTION, num_answers_generated: int = 1):
     """ Run DocQuery. Lots of extra dependeicies. 
@@ -124,3 +167,4 @@ class TA_Pipeline():
     self.pipeline = pipeline('document-question-answering')
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime
     self.doc = document.load_document("../data-generator/notes/Student_Notes.pdf")
+    self.doc_query_is_initted = True
