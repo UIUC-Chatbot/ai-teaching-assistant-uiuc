@@ -26,17 +26,14 @@ from PIL import Image
 NUM_ANSWERS_GENERATED = 5
 # MAX_TEXT_LENGTH = 512
 MAX_TEXT_LENGTH = 768
+USER_QUESTION = ''
 
 class TA_Pipeline:
   def __init__(self):
     
     # init to reasonable defaults (these will typically be overwritten when invoked)
-<<<<<<< HEAD
-    self.num_answers_generated = NUM_ANSWERS_GENERATED
-=======
     self.user_question = USER_QUESTION
     # self.num_answers_generated = NUM_ANSWERS_GENERATED
->>>>>>> 519ac48c1df7c418ae38ebb4455b79d2d300c84d
     self.max_text_length = MAX_TEXT_LENGTH
     
     self.contriever_is_initted = False # todo: load contriever better?
@@ -87,11 +84,6 @@ class TA_Pipeline:
       print("NOT initting OPT")
     
     response_list = []
-<<<<<<< HEAD
-    assert NUM_ANSWERS_GENERATED == len(top_context_list)
-    for i in range(NUM_ANSWERS_GENERATED):
-      prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + top_context_list[i] + '\n' + "Question: " + self.user_question + '\n' + "Answer: "
-=======
     assert num_answers_generated == len(top_context_list)
     for i in range(num_answers_generated):
       prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + top_context_list[i] + '\n' + "Question: " + user_question + '\n' + "Answer: "
@@ -119,7 +111,6 @@ class TA_Pipeline:
     response_list = []
     for i in range(num_answers_generated):
       prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + context + '\n' + "Question: " + user_question + '\n' + "Answer: "
->>>>>>> 519ac48c1df7c418ae38ebb4455b79d2d300c84d
       inputs = opt_tokenizer(prompt, return_tensors="pt").to("cuda")
       
       generate_ids = opt_model.generate(inputs.input_ids, max_length=MAX_TEXT_LENGTH, do_sample=True, top_k=50, top_p=0.95, temperature=0.95, num_return_sequences=1, repetition_penalty=1.2, length_penalty=1.2, pad_token_id=opt_tokenizer.eos_token_id)
@@ -141,13 +132,6 @@ class TA_Pipeline:
     opt_tokenizer = GPT2Tokenizer.from_pretrained("facebook/opt-350m")
     self.opt_is_initted = True
 
-<<<<<<< HEAD
-  def re_ranking_ms_marco(self, response_list):
-    self._load_reranking_ms_marco()
-    assert len([self.user_question] * NUM_ANSWERS_GENERATED ) == len(response_list)
-
-    features = rerank_msmarco_tokenizer([self.user_question] * NUM_ANSWERS_GENERATED, response_list,  padding=True, truncation=True, return_tensors="pt")
-=======
   def re_ranking_ms_marco(self, response_list: List):
     
     # only init once
@@ -158,7 +142,6 @@ class TA_Pipeline:
       print("NOT initting ms_marco")
     
     features = rerank_msmarco_tokenizer([USER_QUESTION] * len(response_list), response_list,  padding=True, truncation=True, return_tensors="pt")
->>>>>>> 519ac48c1df7c418ae38ebb4455b79d2d300c84d
 
     rerank_msmarco_model.eval()
     with torch.no_grad():
