@@ -181,7 +181,7 @@ class TA_Pipeline():
       print("NOT initting clip")
       
     # Prepare the inputs
-    SLIDES_DIR = "../main_fn/lecture_slides/"
+    SLIDES_DIR = "lecture_slides"
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     ppts = list(os.listdir(SLIDES_DIR))
