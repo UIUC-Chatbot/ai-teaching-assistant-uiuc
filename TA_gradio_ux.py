@@ -2,6 +2,7 @@ import os
 import time
 import main
 import gradio as gr
+import random
 import torch
 import pandas as pd
 from PIL import Image
@@ -29,20 +30,17 @@ class TA_Gradio():
         start_time = time.monotonic()
         
         # init our Main() class -- all our models are class properties
-        
         USER_QUESTION = str(question)
         context = str(context)
         NUM_ANSWERS_GENERATED = 5
-        top_context_list = self.ta.retrieve(user_question=USER_QUESTION, num_answers_generated=NUM_ANSWERS_GENERATED)
-        generated_answers_list = self.ta.OPT(USER_QUESTION, top_context_list, NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
-        # if len(str(context)) == 0:
-        #     # contriever: find relevant passages
-        #     top_context_list = self.ta.retrieve(user_question=USER_QUESTION, num_answers_generated=NUM_ANSWERS_GENERATED)
-        #     generated_answers_list = self.ta.OPT(USER_QUESTION, top_context_list, NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
-        # else:
-        #     # opt: passage + question --> answer
-        #     generated_answers_list = self.ta.OPT_one_question_multiple_answers(USER_QUESTION, context, num_answers_generated=NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
-        #     top_context_list = [context]*NUM_ANSWERS_GENERATED
+        if len(str(context)) == 0:
+            # contriever: find relevant passages
+            top_context_list = self.ta.retrieve(user_question=USER_QUESTION, num_answers_generated=NUM_ANSWERS_GENERATED)
+            generated_answers_list = self.ta.OPT(USER_QUESTION, top_context_list, NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
+        else:
+            # opt: passage + question --> answer
+            generated_answers_list = self.ta.OPT_one_question_multiple_answers(USER_QUESTION, context, num_answers_generated=NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
+            top_context_list = [context]*NUM_ANSWERS_GENERATED
         
         # rank OPT answers
         scores = self.ta.re_ranking_ms_marco(generated_answers_list)
@@ -73,13 +71,28 @@ class TA_Gradio():
         # return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), self.run_clip(question, 4)
         return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), None
 
-    def chat(message, history):
+    def chat(self,message, history):
         history = history or []
-        message = message.lower()
-        response = "hello"
-
-        history.append((message, response))
-        return history, history
+        
+        user_utter, topic, topic_history = self.ta.et_main(message)
+        print("Topic:",topic)
+        psg = self.ta.retrieve(user_utter,1)
+        out_ans = self.ta.OPT(user_utter, psg, 1,  False)[0]
+        self.ta.et_add_ans(out_ans)
+        
+        
+        
+        # message = message.lower()
+        # if message.startswith("how many"):
+        #     response = random.randint(1, 10)
+        # elif message.startswith("how"):
+        #     response = random.choice(["Great", "Good", "Okay", "Bad"])
+        # elif message.startswith("where"):
+        #     response = random.choice(["Here", "There", "Somewhere"])
+        # else:
+        #     response = "I don't know"
+        history.append((message, out_ans))
+        return history
 
     def main(self,):
         with gr.Blocks() as input_blocks:
@@ -113,7 +126,6 @@ class TA_Gradio():
             with gr.Row(equal_height=True):
                 gr.Markdown("""## Results""")
                 
-            
             event = run.click(
                 fn=self.question_answer, 
                 inputs=[search_question, context, image], 
@@ -125,6 +137,20 @@ class TA_Gradio():
                     label="Lecture images", show_label=False, elem_id="gallery"
                     ).style(grid=[2], height="auto")], 
                 scroll_to_output=True)
+            
+            with gr.Row(equal_height=True):
+                txt = gr.Textbox(label="chat", lines=2)
+                chatbot = gr.Chatbot().style(color_map=("green", "pink"))
+            with gr.Row(equal_height=True):
+                chat = gr.Button("Chat",variant='primary')
+            
+            event_chat = chat.click(
+                self.chat,
+                inputs = [txt,chatbot],
+                outputs = [chatbot],
+                # ["text", "state"],
+                # [chatbot, "state"],
+            )
                         
             ''' Reverse image search '''
             # event_2 = run_reverse_img_search.click(
@@ -136,7 +162,13 @@ class TA_Gradio():
             #     scroll_to_output=True)
 
             
-
+        
+        # demo = gr.Interface(
+        #     self.chat,
+        #     ["text", "state"],
+        #     [chatbot, "state"],
+        #     allow_flagging="never",
+        # )
         input_blocks.queue(concurrency_count=2) # limit concurrency
         input_blocks.launch(share=True)
         input_blocks.integrate(wandb=wandb)

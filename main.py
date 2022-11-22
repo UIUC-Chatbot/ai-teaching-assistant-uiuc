@@ -35,10 +35,19 @@ USER_QUESTION = ''
 
 class TA_Pipeline:
   def __init__(self,opt_weight_path=None,device = torch.device("cuda:0")):
+    
+    # init parameters
     self.device = device 
     self.opt_weight_path = opt_weight_path
     
     # init modules 
+    self.contriever = None
+    self.opt_model = None 
+    self.rerank_msmarco_model = None 
+    self.rerank_msmarco_tokenizer = None 
+    self.pipeline = None 
+    self.doc = None
+    self.et = None 
     self._load_opt()
     self._load_reranking_ms_marco()
     self._load_doc_query()
@@ -50,10 +59,6 @@ class TA_Pipeline:
     # self.num_answers_generated = NUM_ANSWERS_GENERATED
     self.max_text_length = MAX_TEXT_LENGTH
     
-    self.contriever_is_initted = True # todo: load contriever better?
-    self.opt_is_initted = True
-    self.ms_marco_is_initted = True
-    self.doc_query_is_initted = True
     self.clip_is_initted = False
 
   def _load_contriever(self):
@@ -67,18 +72,15 @@ class TA_Pipeline:
     self.opt_model = opt_model("facebook/opt-1.3b",self.device)
     if(self.opt_weight_path!=None):
       self.opt_model.load_checkpoint(self.opt_weight_path)
-    self.opt_is_initted = True
     
   def _load_reranking_ms_marco(self):
-    self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2').to(self.device)
     self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
-    self.ms_marco_is_initted = True
 
   def _load_doc_query(self):
     self.pipeline = pipeline('document-question-answering')
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime
-    self.doc = document.load_document("../data-generator/notes/Student_Notes.pdf")
-    self.doc_query_is_initted = True
+    self.doc = document.load_document("../data-generator/notes/Student Notes.pdf")
   
   def et_main(self,user_utter):
     qr_user_utter, topic, history = self.et.main(user_utter)
@@ -138,10 +140,10 @@ class TA_Pipeline:
     return response_list
     
   def re_ranking_ms_marco(self, response_list: List):
-    features = self.rerank_msmarco_tokenizer([USER_QUESTION] * len(response_list), response_list,  padding=True, truncation=True, return_tensors="pt")
+    features = self.rerank_msmarco_tokenizer([USER_QUESTION] * len(response_list), response_list,  padding=True, truncation=True, return_tensors="pt").to(self.device)
     self.rerank_msmarco_model.eval()
     with torch.no_grad():
-        scores = self.rerank_msmarco_model(**features).logits
+        scores = self.rerank_msmarco_model(**features).logits.cpu()
         print("Scores for each answer (from ms_marco):", scores)
     return scores
 
