@@ -7,6 +7,7 @@ import torch
 import pandas as pd
 from PIL import Image
 import wandb
+import argparse
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # from .autonotebook import tqdm as notebook_tqdm
@@ -17,11 +18,21 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 #     {"Style reference": [wandb.Image(transforms.ToPILImage()(target_im))]},
 #     step=0)
 
+def main_arg_parse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_weight',type = str,default = None)
+    parser.add_argument('--device',type = str,default = 'cuda:0')
+    parser.add_argument('--wandb_entity',type = str,default = 'wentaoy')
+    parser.add_argument('--wandb_project',type = str, default = "First_TA_Chatbot")
+    args = parser.parse_args()
+    return args
+
 class TA_Gradio():
-    def __init__(self):
-        wandb.init(project="First_TA_Chatbot", entity="wentaoy")
+    def __init__(self,args):
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity)
+        self.device = torch.device(args.device)
         self.results_table = wandb.Table(columns=["question", "user_supplied_context", "generated_answers", "retrieved_contexts", "scores", "runtime (seconds)"])
-        self.ta = main.TA_Pipeline(device = torch.device("cuda:1"),opt_weight_path = "../lgm/data/model_weight/opt_finetune_b128_e20_lr5e06.pt")
+        self.ta = main.TA_Pipeline(device = self.device,opt_weight_path = args.model_weight)
         
     def run_clip(self, user_question:str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)
@@ -162,5 +173,6 @@ class TA_Gradio():
 
 
 if __name__ == '__main__':
-    my_ta = TA_Gradio()
+    args = main_arg_parse()
+    my_ta = TA_Gradio(args)
     my_ta.main()
