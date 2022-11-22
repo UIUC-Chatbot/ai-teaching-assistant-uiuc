@@ -1,0 +1,217 @@
+{
+    "os": "Linux-3.10.0-1160.66.1.el7.x86_64-x86_64-with-glibc2.17",
+    "python": "3.9.0",
+    "heartbeatAt": "2022-11-20T11:00:18.750410",
+    "startedAt": "2022-11-20T11:00:18.382955",
+    "docker": null,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "/home/wentaoy4/main_fn/TA_gradio_ux.py",
+    "codePath": "TA_gradio_ux.py",
+    "git": {
+        "remote": "https://github.com/UIUC-Chatbot/main_fn.git",
+        "commit": "099066f5ce8ceb4bc3ec382c178ac5f01150a4f9"
+    },
+    "email": "15726938186@163.com",
+    "root": "/home/wentaoy4/main_fn",
+    "host": "hybrid.ncsa.illinois.edu",
+    "username": "wentaoy4",
+    "executable": "/home/wentaoy4/anaconda3/envs/test/bin/python",
+    "cpu_count": 16,
+    "cpu_count_logical": 32,
+    "cpu_freq": {
+        "current": 1527.9918749999997,
+        "min": 1200.0,
+        "max": 3200.0
+    },
+    "cpu_freq_per_core": [
+        {
+            "current": 2400.292,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1391.162,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1399.951,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1399.804,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1200.0,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1199.853,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1283.203,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1200.0,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1201.025,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 3169.189,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1297.558,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 2280.615,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1218.457,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1200.0,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1596.533,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1275.0,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 2400.0,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1202.197,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1380.322,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1321.875,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1212.451,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1212.011,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1204.541,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1202.05,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1211.572,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 3188.671,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1248.632,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1231.201,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1280.859,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1203.515,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1750.488,
+            "min": 1200.0,
+            "max": 3200.0
+        },
+        {
+            "current": 1202.343,
+            "min": 1200.0,
+            "max": 3200.0
+        }
+    ],
+    "disk": {
+        "total": 57.5012092590332,
+        "used": 41.68159103393555
+    },
+    "gpu": "Tesla V100-PCIE-32GB",
+    "gpu_count": 4,
+    "gpu_devices": [
+        {
+            "name": "Tesla V100-PCIE-32GB",
+            "memory_total": 34359738368
+        },
+        {
+            "name": "Tesla V100-PCIE-32GB",
+            "memory_total": 34359738368
+        },
+        {
+            "name": "Tesla V100-PCIE-32GB",
+            "memory_total": 34359738368
+        },
+        {
+            "name": "Tesla V100-PCIE-16GB",
+            "memory_total": 17179869184
+        }
+    ],
+    "memory": {
+        "total": 251.6266632080078
+    }
+}

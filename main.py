@@ -4,7 +4,12 @@ import json
 from typing import List, Dict, Any
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
-import contriever.contriever_final # Asmita's contriever
+sys.path.append("../retreival-generation-system")
+
+from docquery import document, pipeline   # import docquery
+import contriever.contriever_final  # import Asmita's contriever
+from module import *                # import generation model(OPT/T5)
+from entity_tracker import entity_tracker # import entity tracker(dialog management)
 import torch
 
 # question re-writing done, but we should use DST
@@ -25,28 +30,64 @@ from PIL import Image
 ########################
 NUM_ANSWERS_GENERATED = 5
 # MAX_TEXT_LENGTH = 512
-MAX_TEXT_LENGTH = 768
+MAX_TEXT_LENGTH = 300
 USER_QUESTION = ''
 
 class TA_Pipeline:
-  def __init__(self):
+  def __init__(self,opt_weight_path=None,device = torch.device("cuda:0")):
+    self.device = device 
+    self.opt_weight_path = opt_weight_path
+    
+    # init modules 
+    self._load_opt()
+    self._load_reranking_ms_marco()
+    self._load_doc_query()
+    self._load_contriever()
+    self._load_et()
     
     # init to reasonable defaults (these will typically be overwritten when invoked)
     self.user_question = USER_QUESTION
     # self.num_answers_generated = NUM_ANSWERS_GENERATED
     self.max_text_length = MAX_TEXT_LENGTH
     
-    self.contriever_is_initted = False # todo: load contriever better?
-    self.opt_is_initted = False
-    self.ms_marco_is_initted = False
-    self.doc_query_is_initted = False
+    self.contriever_is_initted = True # todo: load contriever better?
+    self.opt_is_initted = True
+    self.ms_marco_is_initted = True
+    self.doc_query_is_initted = True
     self.clip_is_initted = False
+
+  def _load_contriever(self):
+    self.contriever =contriever.contriever_final.ContrieverCB()
+  
+  def _load_et(self):
+    self.et = entity_tracker('ECE120')
     
-    # DocQuery properties (high RAM)
-    self.pipeline = None
-    self.doc = None
+  def _load_opt(self):
+    """ Load OPT model """
+    self.opt_model = opt_model("facebook/opt-1.3b",self.device)
+    if(self.opt_weight_path!=None):
+      self.opt_model.load_checkpoint(self.opt_weight_path)
+    self.opt_is_initted = True
     
-  def contriever(self, user_question: str, num_answers_generated: int = NUM_ANSWERS_GENERATED):
+  def _load_reranking_ms_marco(self):
+    self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    self.ms_marco_is_initted = True
+
+  def _load_doc_query(self):
+    self.pipeline = pipeline('document-question-answering')
+    # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime
+    self.doc = document.load_document("../data-generator/notes/Student_Notes.pdf")
+    self.doc_query_is_initted = True
+  
+  def et_main(self,user_utter):
+    qr_user_utter, topic, history = self.et.main(user_utter)
+    return qr_user_utter,topic,history
+  
+  def et_add_ans(self,answer:str):
+    self.et.answer_attach(answer)
+    
+  def retrieve(self, user_question: str, num_answers_generated: int = NUM_ANSWERS_GENERATED):
     ''' Invoke contriever (with reasonable defaults).add()
     It finds relevant textbook passages for a given question.
     This can be used for prompting a generative model to generate an better/grounded answer.
@@ -55,9 +96,9 @@ class TA_Pipeline:
     self.num_answers_generated = num_answers_generated
     
     print("User question: ", user_question)
-    my_contriever = contriever.contriever_final.ContrieverCB()
-    contriever_contexts = my_contriever.retrieve_topk(user_question, path_to_json = "../data-generator/split_textbook/paragraphs.json", k = num_answers_generated)
+    contriever_contexts = self.contriever.retrieve_topk(user_question, path_to_json = "../data-generator/split_textbook/paragraphs.json", k = num_answers_generated)
     top_context_list = self._contriever_clean_contexts(list(contriever_contexts.values()))
+    print(top_context_list)
     
     return top_context_list
     
@@ -69,112 +110,50 @@ class TA_Pipeline:
       for sub in context:
         cleaned_words_list.append(sub.replace("\n", ""))
       top_context_list.append("".join(cleaned_words_list))
-    
-    # print results
-    # print('\n\n'.join(top_context_list))
+
     return top_context_list
   
   def OPT(self, user_question: str = USER_QUESTION, top_context_list: List = None, num_answers_generated: int = NUM_ANSWERS_GENERATED,  print_answers_to_stdout: bool = True):
     """ Run OPT """
-    
-    if not self.opt_is_initted:
-      print("initing OPT model...")
-      self._load_opt()
-    else:
-      print("NOT initting OPT")
-    
     response_list = []
     assert num_answers_generated == len(top_context_list)
     for i in range(num_answers_generated):
-      prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + top_context_list[i] + '\n' + "Question: " + user_question + '\n' + "Answer: "
-      inputs = opt_tokenizer(prompt, return_tensors="pt").to("cuda")
-      
-      generate_ids = opt_model.generate(inputs.input_ids, max_length=MAX_TEXT_LENGTH, do_sample=True, top_k=10, top_p=0.95, temperature=0.95, num_return_sequences=1, repetition_penalty=1.2, length_penalty=1.5, pad_token_id=opt_tokenizer.eos_token_id)
-      response = opt_tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-      opt_answer = response.split("Answer:")[1]
+      opt_answer = self.opt_model.answer_question(top_context_list[i],user_question,MAX_TEXT_LENGTH)
       response_list.append(opt_answer)
-    
     if print_answers_to_stdout:
       print("Generated Answers:")
       print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
     return response_list
-
+    
   def OPT_one_question_multiple_answers(self, user_question: str = USER_QUESTION, context: str = '', num_answers_generated: int = NUM_ANSWERS_GENERATED, print_answers_to_stdout: bool = True):
     """ Run OPT """
-    
-    if not self.opt_is_initted:
-      print("initing OPT model...")
-      self._load_opt()
-    else:
-      print("NOT initting OPT")
-
     response_list = []
     for i in range(num_answers_generated):
-      prompt = "Please answer this person's question accurately, clearly and concicely. Context: " + context + '\n' + "Question: " + user_question + '\n' + "Answer: "
-      inputs = opt_tokenizer(prompt, return_tensors="pt").to("cuda")
-      
-      generate_ids = opt_model.generate(inputs.input_ids, max_length=MAX_TEXT_LENGTH, do_sample=True, top_k=50, top_p=0.95, temperature=0.95, num_return_sequences=1, repetition_penalty=1.2, length_penalty=1.2, pad_token_id=opt_tokenizer.eos_token_id)
-      response = opt_tokenizer.batch_decode(generate_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0]
-      opt_answer = response.split("Answer:")[1]
+      opt_answer = self.opt_model.answer_question(context,user_question,MAX_TEXT_LENGTH)
       response_list.append(opt_answer)
-    
+
     if print_answers_to_stdout:
       print("Generated Answers:")
       print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
     return response_list
-  
-  def _load_opt(self):
-    """ Load OPT model """
-    global opt_model
-    global opt_tokenizer
-
-    opt_model = OPTForCausalLM.from_pretrained("facebook/opt-350m").to('cuda') # 1.3b works on my server. 125m is smallest.
-    opt_tokenizer = GPT2Tokenizer.from_pretrained("facebook/opt-350m")
-    self.opt_is_initted = True
-
+    
   def re_ranking_ms_marco(self, response_list: List):
-    
-    # only init once
-    if not self.ms_marco_is_initted:
-      print("initing ms_marco model...")
-      self._load_reranking_ms_marco()
-    else:
-      print("NOT initting ms_marco")
-    
-    features = rerank_msmarco_tokenizer([USER_QUESTION] * len(response_list), response_list,  padding=True, truncation=True, return_tensors="pt")
-
-    rerank_msmarco_model.eval()
+    features = self.rerank_msmarco_tokenizer([USER_QUESTION] * len(response_list), response_list,  padding=True, truncation=True, return_tensors="pt")
+    self.rerank_msmarco_model.eval()
     with torch.no_grad():
-        scores = rerank_msmarco_model(**features).logits
+        scores = self.rerank_msmarco_model(**features).logits
         print("Scores for each answer (from ms_marco):", scores)
     return scores
-  
-  def _load_reranking_ms_marco(self):
-    global rerank_msmarco_model
-    global rerank_msmarco_tokenizer
 
-    rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
-    rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
-    self.ms_marco_is_initted = True
-    
   def doc_query(self, user_question, num_answers_generated: int = 3):
     """ Run DocQuery. Lots of extra dependeicies. 
     TODO: make it so we can save the 'self.doc' object to disk and load it later.
     """
-    self.user_question = user_question
-    if not self.pipeline:
-      # load docquery on first use
-      self._load_doc_query()    
+    self.user_question = user_question  
     answer = self.pipeline(question=self.user_question, **self.doc.context, top_k=num_answers_generated)
     # todo: this has page numbers, that's nice. 
     return answer[0]['answer']
-     
-  def _load_doc_query(self):
-    from docquery import document, pipeline
-    self.pipeline = pipeline('document-question-answering')
-    # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime
-    self.doc = document.load_document("../data-generator/notes/Student_Notes.pdf")
-    self.doc_query_is_initted = True
+
     
   def clip(self, search_question: str, num_images_returned: int = 3):
     """ Run CLIP. """

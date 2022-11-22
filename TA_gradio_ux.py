@@ -18,9 +18,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 class TA_Gradio():
     def __init__(self):
-        wandb.init(project="First_TA_Chatbot", entity="kastan")
+        wandb.init(project="First_TA_Chatbot", entity="wentaoy")
         self.results_table = wandb.Table(columns=["question", "user_supplied_context", "generated_answers", "retrieved_contexts", "scores", "runtime (seconds)"])
-        self.ta = main.TA_Pipeline()
+        self.ta = main.TA_Pipeline(device = torch.device("cuda:1"),opt_weight_path = "../lgm/data/model_weight/opt_finetune_b128_e20_lr5e06.pt")
         
     def run_clip(self, user_question:str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)
@@ -32,15 +32,17 @@ class TA_Gradio():
         
         USER_QUESTION = str(question)
         context = str(context)
-        NUM_ANSWERS_GENERATED = 10
-        if len(str(context)) == 0:
-            # contriever: find relevant passages
-            top_context_list = self.ta.contriever(user_question=USER_QUESTION, num_answers_generated=NUM_ANSWERS_GENERATED)
-            generated_answers_list = self.ta.OPT(USER_QUESTION, top_context_list, NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
-        else:
-            # opt: passage + question --> answer
-            generated_answers_list = self.ta.OPT_one_question_multiple_answers(USER_QUESTION, context, num_answers_generated=NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
-            top_context_list = [context]*NUM_ANSWERS_GENERATED
+        NUM_ANSWERS_GENERATED = 5
+        top_context_list = self.ta.retrieve(user_question=USER_QUESTION, num_answers_generated=NUM_ANSWERS_GENERATED)
+        generated_answers_list = self.ta.OPT(USER_QUESTION, top_context_list, NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
+        # if len(str(context)) == 0:
+        #     # contriever: find relevant passages
+        #     top_context_list = self.ta.retrieve(user_question=USER_QUESTION, num_answers_generated=NUM_ANSWERS_GENERATED)
+        #     generated_answers_list = self.ta.OPT(USER_QUESTION, top_context_list, NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
+        # else:
+        #     # opt: passage + question --> answer
+        #     generated_answers_list = self.ta.OPT_one_question_multiple_answers(USER_QUESTION, context, num_answers_generated=NUM_ANSWERS_GENERATED, print_answers_to_stdout=False)
+        #     top_context_list = [context]*NUM_ANSWERS_GENERATED
         
         # rank OPT answers
         scores = self.ta.re_ranking_ms_marco(generated_answers_list)
@@ -67,7 +69,17 @@ class TA_Gradio():
         
         # my_df = pd.DataFrame({"question": question, "user_supplied_context": context, "generated_answers": generated_answers_list, "retrieved_contexts": top_context_list, "scores": final_scores, 'runtime (seconds)': time.monotonic() - start_time})
         # wandb.log({"Full inputs and results": my_df})
-        return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), self.run_clip(question, 4)
+        
+        # return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), self.run_clip(question, 4)
+        return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), None
+
+    def chat(message, history):
+        history = history or []
+        message = message.lower()
+        response = "hello"
+
+        history.append((message, response))
+        return history, history
 
     def main(self,):
         with gr.Blocks() as input_blocks:
@@ -96,11 +108,12 @@ class TA_Gradio():
                 # run = gr.Button("Search 🔍", style='')
                 run = gr.Button("Search  🔍", variant='primary',)
                 # run_reverse_img_search = gr.Button("Image search", variant='secondary',)
-                
 
             ''' RESULTS SECTION, run text search '''
             with gr.Row(equal_height=True):
                 gr.Markdown("""## Results""")
+                
+            
             event = run.click(
                 fn=self.question_answer, 
                 inputs=[search_question, context, image], 
@@ -112,7 +125,7 @@ class TA_Gradio():
                     label="Lecture images", show_label=False, elem_id="gallery"
                     ).style(grid=[2], height="auto")], 
                 scroll_to_output=True)
-            
+                        
             ''' Reverse image search '''
             # event_2 = run_reverse_img_search.click(
             #     fn=self.run_clip, 
@@ -128,5 +141,7 @@ class TA_Gradio():
         input_blocks.launch(share=True)
         input_blocks.integrate(wandb=wandb)
 
-my_ta = TA_Gradio()
-my_ta.main()
+
+if __name__ == '__main__':
+    my_ta = TA_Gradio()
+    my_ta.main()
