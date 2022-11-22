@@ -30,7 +30,7 @@ from PIL import Image
 ########################
 NUM_ANSWERS_GENERATED = 5
 # MAX_TEXT_LENGTH = 512
-MAX_TEXT_LENGTH = 300
+MAX_TEXT_LENGTH = 150
 USER_QUESTION = ''
 
 class TA_Pipeline:
@@ -40,19 +40,19 @@ class TA_Pipeline:
     self.device = device 
     self.opt_weight_path = opt_weight_path
     
-    # init modules 
+    # Retriever model: contriever
     self.contriever = None
+    # Generation model: OPT
     self.opt_model = None 
+    # Reranker
     self.rerank_msmarco_model = None 
     self.rerank_msmarco_tokenizer = None 
+    # DocQuery pipeline 
     self.pipeline = None 
     self.doc = None
+    # Entity tracker
     self.et = None 
-    self._load_opt()
-    self._load_reranking_ms_marco()
-    self._load_doc_query()
-    self._load_contriever()
-    self._load_et()
+    self.load_modules()
     
     # init to reasonable defaults (these will typically be overwritten when invoked)
     self.user_question = USER_QUESTION
@@ -60,6 +60,13 @@ class TA_Pipeline:
     self.max_text_length = MAX_TEXT_LENGTH
     
     self.clip_is_initted = False
+  
+  def load_modules(self):
+    self._load_opt()
+    self._load_reranking_ms_marco()
+    self._load_doc_query()
+    self._load_contriever()
+    self._load_et()
 
   def _load_contriever(self):
     self.contriever =contriever.contriever_final.ContrieverCB()

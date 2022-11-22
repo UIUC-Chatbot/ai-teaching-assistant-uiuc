@@ -79,19 +79,8 @@ class TA_Gradio():
         psg = self.ta.retrieve(user_utter,1)
         out_ans = self.ta.OPT(user_utter, psg, 1,  False)[0]
         self.ta.et_add_ans(out_ans)
-        
-        
-        
-        # message = message.lower()
-        # if message.startswith("how many"):
-        #     response = random.randint(1, 10)
-        # elif message.startswith("how"):
-        #     response = random.choice(["Great", "Good", "Okay", "Bad"])
-        # elif message.startswith("where"):
-        #     response = random.choice(["Here", "There", "Somewhere"])
-        # else:
-        #     response = "I don't know"
-        history.append((message, out_ans))
+        final_out = "[RESPONSE]:" + out_ans
+        history.append((message, final_out))
         return history
 
     def main(self,):
@@ -148,8 +137,6 @@ class TA_Gradio():
                 self.chat,
                 inputs = [txt,chatbot],
                 outputs = [chatbot],
-                # ["text", "state"],
-                # [chatbot, "state"],
             )
                         
             ''' Reverse image search '''
