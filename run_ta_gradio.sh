@@ -1,0 +1,2 @@
+export OPENAI_API_KEY=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
+python TA_gradio_ux.py
