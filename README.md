@@ -6,5 +6,5 @@ OPT/FlanT5 finetuned weights saved in the link: https://uillinoisedu-my.sharepoi
 
 ## Files
 - main.py: TA chatbot main class 
-- TA_gradio_ux: TA chatbot with graphical user interface 
-- run_ta_gradio: Launch TA chatbot 
+- TA_gradio_ux.sh: TA chatbot with graphical user interface 
+- run_ta_gradio.sh: Launch TA chatbot 
