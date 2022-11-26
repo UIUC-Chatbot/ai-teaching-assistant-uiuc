@@ -1,4 +1,10 @@
 import os
+import sys
+
+ROOT_DIR = os.path.abspath("../retreival-generation-system/trt_accelerate/HuggingFace/")
+sys.path.append(ROOT_DIR)
+sys.path.append("../retreival-generation-system")
+sys.path.append("../retreival-generation-system/trt_accelerate")
 import time
 import main
 import gradio as gr
@@ -8,6 +14,7 @@ import pandas as pd
 from PIL import Image
 import wandb
 import argparse
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # from .autonotebook import tqdm as notebook_tqdm
@@ -24,6 +31,7 @@ def main_arg_parse():
     parser.add_argument('--device',type = str,default = 'cuda:0')
     parser.add_argument('--wandb_entity',type = str,default = 'wentaoy')
     parser.add_argument('--wandb_project',type = str, default = "First_TA_Chatbot")
+    parser.add_argument('--trt_path',type = str, default= None)
     args = parser.parse_args()
     return args
 
@@ -32,7 +40,7 @@ class TA_Gradio():
         wandb.init(project=args.wandb_project, entity=args.wandb_entity)
         self.device = torch.device(args.device)
         self.results_table = wandb.Table(columns=["question", "user_supplied_context", "generated_answers", "retrieved_contexts", "scores", "runtime (seconds)"])
-        self.ta = main.TA_Pipeline(device = self.device,opt_weight_path = args.model_weight)
+        self.ta = main.TA_Pipeline(device = self.device,opt_weight_path = args.model_weight,trt_path=args.trt_path)
         
     def run_clip(self, user_question:str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)

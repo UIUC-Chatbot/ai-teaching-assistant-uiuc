@@ -6,6 +6,7 @@ sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 sys.path.append("../retreival-generation-system")
 
+
 from docquery import document, pipeline   # import docquery
 import contriever.contriever_final  # import Asmita's contriever
 from module import *                # import generation model(OPT/T5)
@@ -30,15 +31,16 @@ from PIL import Image
 ########################
 NUM_ANSWERS_GENERATED = 5
 # MAX_TEXT_LENGTH = 512
-MAX_TEXT_LENGTH = 150
+MAX_TEXT_LENGTH = 256
 USER_QUESTION = ''
 
 class TA_Pipeline:
-  def __init__(self,opt_weight_path=None,device = torch.device("cuda:0")):
+  def __init__(self,opt_weight_path=None,trt_path = None,device = torch.device("cuda:0")):
     
     # init parameters
     self.device = device 
     self.opt_weight_path = opt_weight_path
+    self.trt_path = trt_path
     
     # Retriever model: contriever
     self.contriever = None
@@ -76,8 +78,8 @@ class TA_Pipeline:
     
   def _load_opt(self):
     """ Load OPT model """
-    self.opt_model = opt_model("facebook/opt-1.3b",self.device)
-    if(self.opt_weight_path!=None):
+    self.opt_model = opt_model("facebook/opt-1.3b",trt_path = self.trt_path ,device = self.device)
+    if(self.opt_weight_path!=None and self.trt_path == None):
       self.opt_model.load_checkpoint(self.opt_weight_path)
     
   def _load_reranking_ms_marco(self):
