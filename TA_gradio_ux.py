@@ -29,9 +29,9 @@ def main_arg_parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_weight',type = str,default = None)
     parser.add_argument('--device',type = str,default = 'cuda:0')
-    parser.add_argument('--wandb_entity',type = str,default = 'wentaoy')
+    parser.add_argument('--wandb_entity',type = str,default = 'uiuc-ta-chatbot-team')
     parser.add_argument('--wandb_project',type = str, default = "First_TA_Chatbot")
-    parser.add_argument('--trt_path',type = str, default= None)
+    # parser.add_argument('--trt_path',type = str, default= None)
     args = parser.parse_args()
     return args
 
@@ -40,7 +40,7 @@ class TA_Gradio():
         wandb.init(project=args.wandb_project, entity=args.wandb_entity)
         self.device = torch.device(args.device)
         self.results_table = wandb.Table(columns=["question", "user_supplied_context", "generated_answers", "retrieved_contexts", "scores", "runtime (seconds)"])
-        self.ta = main.TA_Pipeline(device = self.device,opt_weight_path = args.model_weight,trt_path=args.trt_path)
+        self.ta = main.TA_Pipeline(device = self.device,opt_weight_path = args.model_weight) # ,trt_path=args.trt_path)
         
     def run_clip(self, user_question:str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)
@@ -87,8 +87,8 @@ class TA_Gradio():
         # my_df = pd.DataFrame({"question": question, "user_supplied_context": context, "generated_answers": generated_answers_list, "retrieved_contexts": top_context_list, "scores": final_scores, 'runtime (seconds)': time.monotonic() - start_time})
         # wandb.log({"Full inputs and results": my_df})
         
-        # return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), self.run_clip(question, 4)
-        return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), None
+        return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), self.run_clip(question, 4)
+        # return pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(3), None
 
     def chat(self,message, history):
         history = history or []
@@ -130,10 +130,10 @@ class TA_Gradio():
                 run = gr.Button("Search  🔍", variant='primary',)
                 # run_reverse_img_search = gr.Button("Image search", variant='secondary',)
 
-            ''' RESULTS SECTION, run text search '''
+            ''' RESULTS SECTION, for text search && CLIP '''
             with gr.Row(equal_height=True):
                 gr.Markdown("""## Results""")
-                
+            
             event = run.click(
                 fn=self.question_answer, 
                 inputs=[search_question, context, image], 

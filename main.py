@@ -2,15 +2,21 @@ import sys
 import os
 import json
 from typing import List, Dict, Any
+import pathlib
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
+sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
 
+# set environment variable huggingface cache path to ~/
+os.environ['TRANSFORMERS_CACHE'] = '/home/kastanday/project'
 
-from docquery import document, pipeline   # import docquery
+
+# from docquery import document, pipeline   # import docquery
 import contriever.contriever_final  # import Asmita's contriever
 from module import *                # import generation model(OPT/T5)
 from entity_tracker import entity_tracker # import entity tracker(dialog management)
+from clip_for_ppts import ClipImage # Hiral's clip forward & reverse image search.
 import torch
 
 # question re-writing done, but we should use DST
@@ -41,6 +47,7 @@ class TA_Pipeline:
     self.device = device 
     self.opt_weight_path = opt_weight_path
     self.trt_path = trt_path
+    self.LECTURE_SLIDES_DIR = os.path.join(os.getcwd(), "lecture_slides")
     
     # Retriever model: contriever
     self.contriever = None
@@ -54,6 +61,10 @@ class TA_Pipeline:
     self.doc = None
     # Entity tracker
     self.et = None 
+    # Clip for image search
+    self.clip_search_class = None 
+    
+    # Load everything into cuda memory    
     self.load_modules()
     
     # init to reasonable defaults (these will typically be overwritten when invoked)
@@ -66,10 +77,20 @@ class TA_Pipeline:
   def load_modules(self):
     self._load_opt()
     self._load_reranking_ms_marco()
-    self._load_doc_query()
+    # self._load_doc_query()
     self._load_contriever()
     self._load_et()
+    self._load_clip()
 
+  def _load_clip(self):
+    print("initing clip model...")
+    print("Todo: think more carefully about which device to use.")
+    
+    self.clip_search_class = ClipImage(path_of_ppt_folders=self.LECTURE_SLIDES_DIR,
+                                       path_to_save_image_features=os.getcwd(),
+                                       mode='text',
+                                       device='cuda:1')
+    
   def _load_contriever(self):
     self.contriever =contriever.contriever_final.ContrieverCB()
   
@@ -78,7 +99,7 @@ class TA_Pipeline:
     
   def _load_opt(self):
     """ Load OPT model """
-    self.opt_model = opt_model("facebook/opt-1.3b",trt_path = self.trt_path ,device = self.device)
+    self.opt_model = opt_model("facebook/opt-1.3b" ,device = self.device) # trt_path = self.trt_path
     if(self.opt_weight_path!=None and self.trt_path == None):
       self.opt_model.load_checkpoint(self.opt_weight_path)
     
@@ -165,58 +186,16 @@ class TA_Pipeline:
     # todo: this has page numbers, that's nice. 
     return answer[0]['answer']
 
-    
   def clip(self, search_question: str, num_images_returned: int = 3):
-    """ Run CLIP. """
-    if not self.clip_is_initted:
-      print("initing clip model...")
-      self._load_clip()
-    else:
-      print("NOT initting clip")
-      
-    # Prepare the inputs
-    SLIDES_DIR = "lecture_slides"
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    ppts = list(os.listdir(SLIDES_DIR))
-    #print(ppts, len(ppts))
-    text_inputs = torch.cat([clip.tokenize(search_question)]).to(device)
-    res = []
-    for i in ppts:
-      #print(i)
-      imgs = list(os.listdir(SLIDES_DIR+i))
-      image_input = torch.cat([clip_preprocess(Image.open(SLIDES_DIR+i+'/'+image)).unsqueeze(0) for image in imgs]).to(device)
-
-      with torch.no_grad():
-        image_features = clip_model.encode_image(image_input)
-        text_features = clip_model.encode_text(text_inputs)
-
-      # Pick the top 3 most similar labels for the image
-      image_features /= image_features.norm(dim=-1, keepdim=True)
-      text_features /= text_features.norm(dim=-1, keepdim=True)
-      similarity = (100.0 * text_features @ image_features.T).softmax(dim=-1)
-      values, indices = similarity[0].topk(3)
-
-      for val, index in zip(values,indices):
-        # print(f"Image Name:{imgs[index]}\tSimilarity:{val}")
-        res.append([i, imgs[index], val])
+    """ Run CLIP. 
+    Returns a list of images in all cases. 
+    """
+    imgs = self.clip_search_class.text_to_image_search(search_text=search_question, top_k_to_return=num_images_returned)
     
-    # ans should have no of folders * 3 slides 
-    ans = sorted(res,key=lambda x:x[2], reverse=True)
-    print(ans[:3])
+    img_path_list = []
+    for img in imgs:
+      img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
+    print("Final image path: ", img_path_list)
     
-    img_list_to_return = []
-    for i in range(num_images_returned):
-      img_list_to_return.append(Image.open(SLIDES_DIR+ans[i][0]+"/"+ans[i][1]))
-    return img_list_to_return
+    return img_path_list
     
-  
-  def _load_clip(self):
-    global clip_model
-    global clip_preprocess
-    
-    # Load the model
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print("Running on: ", device)
-    clip_model, clip_preprocess = clip.load('ViT-B/32', device)
-    self.clip_is_initted = True
