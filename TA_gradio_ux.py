@@ -286,7 +286,7 @@ class TA_Gradio():
         #     [chatbot, "state"],
         #     allow_flagging="never",
         # )
-        input_blocks.queue(concurrency_count=2)  # limit concurrency
+        input_blocks.queue(concurrency_count=3)  # limit concurrency
         input_blocks.launch(share=True)
         input_blocks.integrate(wandb=wandb)
 
