@@ -6,17 +6,18 @@ ROOT_DIR = os.path.abspath(
 sys.path.append(ROOT_DIR)
 sys.path.append("../retreival-generation-system")
 sys.path.append("../retreival-generation-system/trt_accelerate")
-import time
-import main
-import gradio as gr
-import random
-import torch
-import pandas as pd
-from PIL import Image
-import wandb
 import argparse
 import pprint
-from typing import List, Dict
+import random
+import time
+from typing import Dict, List
+
+import gradio as gr
+import main
+import pandas as pd
+import torch
+import wandb
+from PIL import Image
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -295,8 +296,9 @@ def make_inference_id(name: str) -> str:
     '''
     🎯 Best practice to ensure unique Workflow names.
     '''
-    import pytz
     from datetime import datetime
+
+    import pytz
 
     # Timezones: US/{Pacific, Mountain, Central, Eastern}
     # All timezones `pytz.all_timezones`. Always use caution with timezones.
