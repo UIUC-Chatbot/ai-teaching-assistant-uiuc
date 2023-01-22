@@ -12,12 +12,12 @@ sys.path.append("../retreival-generation-system")
 # set environment variable huggingface cache path to ~/
 os.environ['TRANSFORMERS_CACHE'] = '/home/kastanday/project'
 
-# for gpt-3 completions
-import openai
 # for CLIP
 import clip
 # from docquery import document, pipeline   # import docquery
 import contriever.contriever_final  # import Asmita's contriever
+# for gpt-3 completions
+import openai
 import torch
 from clip_for_ppts import \
     ClipImage  # Hiral's clip forward & reverse image search.
@@ -50,7 +50,6 @@ class TA_Pipeline:
                  device=torch.device("cuda:0"),
                  use_clip=False):
 
-<<<<<<< HEAD
         # init parameters
         self.device = device
         self.opt_weight_path = opt_weight_path
@@ -175,22 +174,6 @@ class TA_Pipeline:
                  user_question: str,
                  num_answers_generated: int = NUM_ANSWERS_GENERATED):
         ''' Invoke contriever (with reasonable defaults).add()
-=======
-  def _load_doc_query(self):
-    self.pipeline = pipeline('document-question-answering')
-    # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc. 
-    self.doc = document.load_document("../data-generator/notes/Student Notes.pdf")
-  
-  def et_main(self,user_utter):
-    qr_user_utter, topic, history = self.et.main(user_utter)
-    return qr_user_utter,topic,history
-  
-  def et_add_ans(self,answer:str):
-    self.et.answer_attach(answer)
-    
-  def retrieve(self, user_question: str, num_answers_generated: int = NUM_ANSWERS_GENERATED):
-    ''' Invoke contriever (with reasonable defaults).add()
->>>>>>> d04aa66 (clarify comments)
     It finds relevant textbook passages for a given question.
     This can be used for prompting a generative model to generate an better/grounded answer.
     '''
