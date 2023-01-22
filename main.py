@@ -109,7 +109,7 @@ class TA_Pipeline:
 
   def _load_doc_query(self):
     self.pipeline = pipeline('document-question-answering')
-    # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime
+    # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc. 
     self.doc = document.load_document("../data-generator/notes/Student Notes.pdf")
   
   def et_main(self,user_utter):
