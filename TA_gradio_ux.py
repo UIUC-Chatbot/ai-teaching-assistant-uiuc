@@ -59,16 +59,17 @@ class TA_Gradio():
 
     def question_answer(self,
                         question: str,
-                        user_defined_context: str,
+                        user_defined_context: str = '',
                         use_gpt3: bool = False,
                         image=None):
         """
         This is the function called with the user clicks the main "Search 🔍" button.
+        You can call this from anywhere to run our main program.
         
         question: user-supplied question
-        user_defined_context: user-supplied context, usually empty, so we retrieve our own.
-        use_gpt3: the True/False value of the checkbox in the UI to "Use GPT3 (paid)"
-        image: I'm not sure, I think this is the user-supplied image, for reverse image search.
+        [OPTIONAL] user_defined_context: user-supplied context to make the answer more specific. Usually it's empty, so we AI retrieve a context.
+        [OPTIONAL] use_gpt3: Run GPT-3 answer-generation if True, default is False. The True/False value of the checkbox in the UI to "Use GPT3 (paid)". 
+        [OPTIONAL] image: User-supplied image, for reverse image search.
         """
         # we generate many answers, then filter it down to the best scoring ones (w/ msmarco).
         NUM_ANSWERS_GENERATED = 5
