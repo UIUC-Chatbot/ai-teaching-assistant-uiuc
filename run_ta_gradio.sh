@@ -1,5 +1,5 @@
 export OPENAI_API_KEY=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
-export TRANSFORMERS_CACHE=/home/kastanday/project
+export TRANSFORMERS_CACHE=/mnt/project/chatbotai
 python TA_gradio_ux.py
     
     

@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import sys
+import time
 from typing import Any, Dict, List
 
 sys.path.append("../data-generator")
@@ -9,8 +10,8 @@ sys.path.append("../info-retrieval")
 sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
 
-# set environment variable huggingface cache path to ~/
-os.environ['TRANSFORMERS_CACHE'] = '/home/kastanday/project'
+# set huggingface cace to our base dir, so we all share it. 
+os.environ['TRANSFORMERS_CACHE'] = '/mnt/project/chatbotai'
 
 # for CLIP
 import clip
@@ -28,7 +29,8 @@ from PIL import Image
 # for re-ranking MS-Marco
 # for OPT
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
-                          GPT2Tokenizer, OPTForCausalLM)
+                          T5ForConditionalGeneration, GPT2Tokenizer, OPTForCausalLM)
+
 
 # question re-writing done, but we should use DST
 # add re-ranker
@@ -47,7 +49,7 @@ class TA_Pipeline:
     def __init__(self,
                  opt_weight_path=None,
                  trt_path=None,
-                 device=torch.device("cuda:0"),
+                 device=torch.device("cuda:1"),
                  use_clip=False):
 
         # init parameters
@@ -58,8 +60,11 @@ class TA_Pipeline:
 
         # Retriever model: contriever
         self.contriever = None
-        # Generation model: OPT
+        # Generation model: OPT & T5
         self.opt_model = None
+        self.t5_model = None
+        self.t5_tokenizer = None
+
         # Reranker
         self.rerank_msmarco_model = None
         self.rerank_msmarco_tokenizer = None
@@ -81,11 +86,16 @@ class TA_Pipeline:
         # self.num_answers_generated = NUM_ANSWERS_GENERATED
         self.max_text_length = MAX_TEXT_LENGTH
 
+    ######################################################################
+    ########  Load all our different models ##############################
+    ######################################################################
+
     def load_modules(self):
         self._load_opt()
         self._load_reranking_ms_marco()
         self._load_contriever()
         self._load_et()
+        self._load_t5()
         # TODO: install doc-query dependencies
         # self._load_doc_query()
 
@@ -127,7 +137,49 @@ class TA_Pipeline:
         self.pipeline = pipeline('document-question-answering')
         # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc.
         self.doc = document.load_document(
-            "../data-generator/notes/Student Notes.pdf")
+            "../data-generator/raw_data/notes/Student_Notes.pdf")
+
+    
+    ######################################################################
+    ########  Start completion generators ################################
+    ######################################################################
+
+    def _load_t5(self):
+        # TODO: use float32, from small experience it just produces nicer responses. Int8 is garbage from tim-deters.
+        self.t5_model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl", device_map="auto", torch_dtype=torch.float16)
+        # model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl", device_map="auto", load_in_8bit=True)
+        self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xl")
+
+    def run_t5_completion(self,
+                          user_question: str = USER_QUESTION,
+                          top_context_list: List = None,
+                          num_answers_generated: int = NUM_ANSWERS_GENERATED,
+                          print_answers_to_stdout: bool = False):
+        """ Run T5 generator """
+        start_time = time.monotonic()
+
+        response_list = []
+        assert num_answers_generated == len(top_context_list)
+        for i in range(num_answers_generated):
+            inner_time = time.monotonic()
+            PROMPT = f"Answer the questions given the passage below. Context: {top_context_list[i]}. Question {user_question} Answer:"
+
+            # todo: tune the correct cuda device number.
+            inputs = self.t5_tokenizer(PROMPT, return_tensors="pt").to("cuda:1")
+            outputs = self.t5_model.generate(**inputs, max_length=256, num_beams=3, early_stopping=True)
+            single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+            response_list.append(single_answer)
+            print("Single answer:", single_answer)
+        if print_answers_to_stdout:
+            print(f"⏰ T5 runtime for SINGLE generation: {(time.monotonic() - inner_time):.2f} seconds")
+            inner_time = time.monotonic()
+        if print_answers_to_stdout:
+            print(f"⏰ T5 runtime for num_generations = {num_answers_generated}: {(time.monotonic() - start_time):.2f} seconds")
+            print("Generated Answers:")
+            print(
+                '\n---------------------------------NEXT---------------------------------\n'
+                .join(response_list))
+        return response_list
 
     def gpt3_completion(self,
                         question,
@@ -183,7 +235,7 @@ class TA_Pipeline:
         # print("User question: ", user_question)
         contriever_contexts = self.contriever.retrieve_topk(
             user_question,
-            path_to_json="../data-generator/split_textbook/paragraphs.json",
+            path_to_json="../data-generator/input_data/split_textbook/paragraphs.json",
             k=num_answers_generated)
         top_context_list = self._contriever_clean_contexts(
             list(contriever_contexts.values()))

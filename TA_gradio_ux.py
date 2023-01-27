@@ -87,30 +87,44 @@ class TA_Gradio():
                 num_answers_generated=NUM_ANSWERS_GENERATED)
 
             # Run opt answer generation
-            generated_answers_list = self.ta.OPT(USER_QUESTION,
-                                                 top_context_list,
-                                                 NUM_ANSWERS_GENERATED,
-                                                 print_answers_to_stdout=False)
+            # generated_answers_list = self.ta.OPT(USER_QUESTION,
+            #                                      top_context_list,
+            #                                      NUM_ANSWERS_GENERATED,
+            #                                      print_answers_to_stdout=False)
+
+            # T5 generations
+            generated_answers_list = self.ta.run_t5_completion(
+                                                        USER_QUESTION,
+                                                        top_context_list,
+                                                        num_answers_generated=NUM_ANSWERS_GENERATED,
+                                                        print_answers_to_stdout=True)
+            print("generated_answers_list", generated_answers_list)
         else:
             # opt: passage + question --> answer
-            generated_answers_list = self.ta.OPT_one_question_multiple_answers(
+            # generated_answers_list = self.ta.OPT_one_question_multiple_answers(
+            #     USER_QUESTION,
+            #     user_defined_context,
+            #     num_answers_generated=NUM_ANSWERS_GENERATED,
+            #     print_answers_to_stdout=False)
+
+            # T5 generations
+            generated_answers_list = self.ta.run_t5_completion(
                 USER_QUESTION,
                 user_defined_context,
                 num_answers_generated=NUM_ANSWERS_GENERATED,
-                print_answers_to_stdout=False)
+                print_answers_to_stdout=True)
+
             # show (the same) user-supplied context for next to each generated answer.
             top_context_list = [user_defined_context] * NUM_ANSWERS_GENERATED
 
         # rank potential answers
+        # todo: rank both!!
         final_scores = self.ta.re_ranking_ms_marco(generated_answers_list,
                                                    USER_QUESTION)
 
-        # index_of_best_answer = torch.argmax(scores)  # get best answer
-        # print("\n-------------------------------------------------------------\n")
-        # print("Best answer 👇\n", generated_answers_list[index_of_best_answer])
-
         # return a pd datafarme, to display a gr.dataframe
         results = {
+            # 'Answer': generated_answers_list,
             'Answer': generated_answers_list,
             'Context': top_context_list,
             'Score': final_scores,
