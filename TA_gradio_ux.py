@@ -3,6 +3,7 @@ import sys
 
 ROOT_DIR = os.path.abspath("../retreival-generation-system/trt_accelerate/HuggingFace/")
 sys.path.append(ROOT_DIR)
+sys.path.append("../human_data_review")
 sys.path.append("../retreival-generation-system")
 sys.path.append("../retreival-generation-system/trt_accelerate")
 import argparse
@@ -17,6 +18,11 @@ import pandas as pd
 import torch
 import wandb
 from PIL import Image
+import json
+from rouge import Rouge 
+from datasets import load_metric
+import numpy as np
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -53,6 +59,41 @@ class TA_Gradio():
     def run_clip(self, user_question: str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)
 
+    def model_evaluation(self, eval_set_path: str = '../human_data_review/gpt-3_semantic_search/1_top_quality.json'):
+        """
+        Args:user_question (str): questions from the human filtered eval set
+
+        Returns: the rouge-L and bleu1 scores for each user's question compared to the human labeled answers
+        
+        overall_rouge_score: the average RougeL f1 score for all the questions in eval set
+        overall_bleu_score: the average Bleu1 score for all the questions in eval set
+        """
+        self.eval_set_path = eval_set_path
+        eval_set = json.load(open(self.eval_set_path, 'r'))
+        eval_question = []
+        eval_answer = []
+        bleu_metric = load_metric('bleu')
+        rouge = Rouge()
+        rouge_score_list, bleu_score_list = [], []
+        for dataset in [eval_set]:
+            for row in dataset:
+                eval_question.append(row['GPT-3-Generations']['question'])
+                eval_answer.append(row['GPT-3-Generations']['answer'])
+        for question, answer in zip(eval_question, eval_answer):
+            generated_answers, _ = self.question_answer(question, "")
+            best_generated_answer = generated_answers["Answer"].head(1).values
+            # rouge score
+            rouge_scores = rouge.get_scores(best_generated_answer[0], answer)
+            rougel_f_score = rouge_scores[0]['rouge-l']['f']
+            rouge_score_list.append(rougel_f_score)
+            # bleu score
+            bleu_scores = bleu_metric.compute(predictions=[best_generated_answer[0].split(' ')],references=[[answer.split(' ')]])
+            bleu_1_socre = bleu_scores['precisions'][0]
+            bleu_score_list.append(bleu_1_socre)
+        overall_rouge_score = np.mean(rouge_score_list)
+        overall_bleu_score = np.mean(bleu_score_list)
+        return overall_rouge_score, overall_bleu_score
+    
     def question_answer(self, question: str, user_defined_context: str = '', use_gpt3: bool = False, image=None):
         """
         This is the function called with the user clicks the main "Search 🔍" button.
@@ -301,4 +342,7 @@ def make_inference_id(name: str) -> str:
 if __name__ == '__main__':
     args = main_arg_parse()
     my_ta = TA_Gradio(args)
+    # rouge, bleu = my_ta.model_evaluation()
     my_ta.main()
+    
+
