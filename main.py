@@ -4,17 +4,20 @@ import pathlib
 import sys
 import time
 from typing import Any, Dict, List
+import pinecone  # cloud-hosted vector database for context retrieval
+from langchain.vectorstores import Pinecone
+from langchain.embeddings import HuggingFaceEmbeddings
 
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
 
-# set huggingface cace to our base dir, so we all share it. 
+# set huggingface cace to our base dir, so we all share it.
 os.environ['TRANSFORMERS_CACHE'] = '/mnt/project/chatbotai'
 
 # for CLIP
-import clip
+# import clip
 # from docquery import document, pipeline   # import docquery
 import contriever.contriever_final  # import Asmita's contriever
 # for gpt-3 completions
@@ -28,9 +31,8 @@ from module import *  # import generation model(OPT/T5)
 from PIL import Image
 # for re-ranking MS-Marco
 # for OPT
-from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
-                          T5ForConditionalGeneration, GPT2Tokenizer, OPTForCausalLM)
-
+from transformers import (AutoModelForSequenceClassification, AutoTokenizer, T5ForConditionalGeneration, GPT2Tokenizer,
+                          OPTForCausalLM)
 
 # question re-writing done, but we should use DST
 # add re-ranker
@@ -46,11 +48,7 @@ USER_QUESTION = ''
 
 class TA_Pipeline:
 
-    def __init__(self,
-                 opt_weight_path=None,
-                 trt_path=None,
-                 device=torch.device("cuda:1"),
-                 use_clip=False):
+    def __init__(self, opt_weight_path=None, trt_path=None, device=torch.device("cuda:1"), use_clip=False):
 
         # init parameters
         self.device = device
@@ -73,6 +71,8 @@ class TA_Pipeline:
         self.doc = None
         # Entity tracker
         self.et = None
+        # Pinecone vector store (for relevant contexts)
+        self.vectorstore = None
         # Clip for image search
         if use_clip:
             self.clip_search_class = None
@@ -96,6 +96,7 @@ class TA_Pipeline:
         self._load_contriever()
         self._load_et()
         self._load_t5()
+        self._load_pinecone_vectorstore()
         # TODO: install doc-query dependencies
         # self._load_doc_query()
 
@@ -103,11 +104,10 @@ class TA_Pipeline:
         print("initing clip model...")
         print("Todo: think more carefully about which device to use.")
 
-        self.clip_search_class = ClipImage(
-            path_of_ppt_folders=self.LECTURE_SLIDES_DIR,
-            path_to_save_image_features=os.getcwd(),
-            mode='text',
-            device='cuda:1')
+        self.clip_search_class = ClipImage(path_of_ppt_folders=self.LECTURE_SLIDES_DIR,
+                                           path_to_save_image_features=os.getcwd(),
+                                           mode='text',
+                                           device='cuda:1')
 
     def _load_contriever(self):
         self.contriever = contriever.contriever_final.ContrieverCB()
@@ -119,9 +119,7 @@ class TA_Pipeline:
         """ Load OPT model """
 
         # todo: is this the right way to instantiate this model?
-        self.opt_model = opt_model(
-            "facebook/opt-1.3b",
-            device=self.device)  # trt_path = self.trt_path
+        self.opt_model = opt_model("facebook/opt-1.3b", device=self.device)  # trt_path = self.trt_path
 
         if (self.opt_weight_path != None and self.trt_path == None):
             self.opt_model.load_checkpoint(self.opt_weight_path)
@@ -129,26 +127,32 @@ class TA_Pipeline:
     def _load_reranking_ms_marco(self):
         self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained(
             'cross-encoder/ms-marco-MiniLM-L-6-v2').to(self.device)
-        self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained(
-            'cross-encoder/ms-marco-MiniLM-L-6-v2')
+        self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
         self.rerank_msmarco_model.eval()
 
     def _load_doc_query(self):
         self.pipeline = pipeline('document-question-answering')
         # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc.
-        self.doc = document.load_document(
-            "../data-generator/raw_data/notes/Student_Notes.pdf")
+        self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
 
-    
     ######################################################################
     ########  Start completion generators ################################
     ######################################################################
 
     def _load_t5(self):
-        # TODO: use float32, from small experience it just produces nicer responses. Int8 is garbage from tim-deters.
-        self.t5_model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl", device_map="auto", torch_dtype=torch.float16)
-        # model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xl", device_map="auto", load_in_8bit=True)
-        self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xl")
+        self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xxl")
+
+        # for now, device 2 is set to 0 because hongyu2 is running things there.
+        self.t5_model = T5ForConditionalGeneration.from_pretrained("google/flan-t5-xxl",
+                                                                   device_map="auto",
+                                                                   torch_dtype=torch.bfloat16,
+                                                                   max_memory={
+                                                                       0: "29GiB",
+                                                                       1: "29GiB",
+                                                                       2: "2GiB",
+                                                                       3: "16GiB"
+                                                                   })
+        # self.t5_model = torch.compile(self.t5_model) # no real speedup :(
 
     def run_t5_completion(self,
                           user_question: str = USER_QUESTION,
@@ -159,26 +163,30 @@ class TA_Pipeline:
         start_time = time.monotonic()
 
         response_list = []
-        assert num_answers_generated == len(top_context_list)
+        assert num_answers_generated == len(
+            top_context_list), "There must be a unique context for each generated answer. "
         for i in range(num_answers_generated):
             inner_time = time.monotonic()
-            PROMPT = f"Answer the questions given the passage below. Context: {top_context_list[i]}. Question {user_question} Answer:"
+            PROMPT = f"Task: Open book QA. Question: {user_question} Context: {top_context_list[i]}. Answer:"
 
             # todo: tune the correct cuda device number.
-            inputs = self.t5_tokenizer(PROMPT, return_tensors="pt").to("cuda:1")
-            outputs = self.t5_model.generate(**inputs, max_length=256, num_beams=3, early_stopping=True)
+            inputs = self.t5_tokenizer(PROMPT, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
+            outputs = self.t5_model.generate(**inputs,
+                                             max_new_tokens=256,
+                                             num_beams=3,
+                                             early_stopping=True,
+                                             temperature=1.5,
+                                             repetition_penalty=2.5)
             single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
             response_list.append(single_answer)
-            print("Single answer:", single_answer)
+            if print_answers_to_stdout:
+                # print("Single answer:", single_answer)
+                print(f"⏰ T5 runtime for SINGLE generation: {(time.monotonic() - inner_time):.2f} seconds")
+                inner_time = time.monotonic()
         if print_answers_to_stdout:
-            print(f"⏰ T5 runtime for SINGLE generation: {(time.monotonic() - inner_time):.2f} seconds")
-            inner_time = time.monotonic()
-        if print_answers_to_stdout:
-            print(f"⏰ T5 runtime for num_generations = {num_answers_generated}: {(time.monotonic() - start_time):.2f} seconds")
+            print(f"⏰ T5 runtime for {num_answers_generated} iters: {(time.monotonic() - start_time):.2f} seconds")
             print("Generated Answers:")
-            print(
-                '\n---------------------------------NEXT---------------------------------\n'
-                .join(response_list))
+            print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
         return response_list
 
     def gpt3_completion(self,
@@ -194,9 +202,7 @@ class TA_Pipeline:
         prompt = self.prepare_prompt(question, context)
         max_retry = 5
         retry = 0
-        prompt = prompt.encode(
-            encoding='utf-8',
-            errors='ignore').decode()  # force it to fix any unicode errors
+        prompt = prompt.encode(encoding='utf-8', errors='ignore').decode()  # force it to fix any unicode errors
         while True:
             try:
                 response = openai.Completion.create(model=model,
@@ -222,24 +228,36 @@ class TA_Pipeline:
     def et_add_ans(self, answer: str):
         self.et.answer_attach(answer)
 
-    def retrieve(self,
-                 user_question: str,
-                 num_answers_generated: int = NUM_ANSWERS_GENERATED):
+    ############################################################################
+    ######### Context Retrieval (several types) ################################
+    ############################################################################
+
+    def _load_pinecone_vectorstore(self,):
+        model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
+        embeddings = HuggingFaceEmbeddings(model_name=model_name)
+        pinecone.init(api_key=os.environ['PINECONE_API_KEY'], environment="us-west1-gcp")
+        pincecone_index = pinecone.Index("uiuc-chatbot")
+        self.vectorstore = Pinecone(index=pincecone_index, embedding_function=embeddings.embed_query, text_key="text")
+
+    def retrieve_contexts_from_pinecone(self, user_question: str, topk: int = NUM_ANSWERS_GENERATED) -> List[Any]:
+        ''' 
+        Invoke Pinecone for vector search. These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
+        Returns a list of LangChain Documents. They have properties: `doc.page_content`: str, doc.metadata['page_number']: int, doc.metadata['textbook_name']: str.
+        '''
+        relevant_context_list = self.vectorstore.similarity_search(user_question, k=topk)
+        return relevant_context_list
+
+    def retrieve(self, user_question: str, topk: int = NUM_ANSWERS_GENERATED):
         ''' Invoke contriever (with reasonable defaults).add()
     It finds relevant textbook passages for a given question.
     This can be used for prompting a generative model to generate an better/grounded answer.
     '''
         self.user_question = user_question
-        self.num_answers_generated = num_answers_generated
+        self.num_answers_generated = topk
 
-        # print("User question: ", user_question)
         contriever_contexts = self.contriever.retrieve_topk(
-            user_question,
-            path_to_json="../data-generator/input_data/split_textbook/paragraphs.json",
-            k=num_answers_generated)
-        top_context_list = self._contriever_clean_contexts(
-            list(contriever_contexts.values()))
-        # print(top_context_list)
+            user_question, path_to_json="../data-generator/input_data/split_textbook/paragraphs.json", k=topk)
+        top_context_list = self._contriever_clean_contexts(list(contriever_contexts.values()))
 
         return top_context_list
 
@@ -263,43 +281,35 @@ class TA_Pipeline:
         response_list = []
         assert num_answers_generated == len(top_context_list)
         for i in range(num_answers_generated):
-            opt_answer = self.opt_model.answer_question(
-                top_context_list[i], user_question, MAX_TEXT_LENGTH)
+            opt_answer = self.opt_model.answer_question(top_context_list[i], user_question, MAX_TEXT_LENGTH)
             response_list.append(opt_answer)
         if print_answers_to_stdout:
             print("Generated Answers:")
-            print(
-                '\n---------------------------------NEXT---------------------------------\n'
-                .join(response_list))
+            print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
         return response_list
 
-    def OPT_one_question_multiple_answers(
-            self,
-            user_question: str = USER_QUESTION,
-            context: str = '',
-            num_answers_generated: int = NUM_ANSWERS_GENERATED,
-            print_answers_to_stdout: bool = True):
+    def OPT_one_question_multiple_answers(self,
+                                          user_question: str = USER_QUESTION,
+                                          context: str = '',
+                                          num_answers_generated: int = NUM_ANSWERS_GENERATED,
+                                          print_answers_to_stdout: bool = True):
         """ Run OPT """
         response_list = []
         for i in range(num_answers_generated):
-            opt_answer = self.opt_model.answer_question(
-                context, user_question, MAX_TEXT_LENGTH)
+            opt_answer = self.opt_model.answer_question(context, user_question, MAX_TEXT_LENGTH)
             response_list.append(opt_answer)
 
         if print_answers_to_stdout:
             print("Generated Answers:")
-            print(
-                '\n---------------------------------NEXT---------------------------------\n'
-                .join(response_list))
+            print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
         return response_list
 
     def re_ranking_ms_marco(self, response_list: List, user_question: str):
-        features = self.rerank_msmarco_tokenizer(
-            [user_question] * len(response_list),
-            response_list,
-            padding=True,
-            truncation=True,
-            return_tensors="pt").to(self.device)
+        features = self.rerank_msmarco_tokenizer([user_question] * len(response_list),
+                                                 response_list,
+                                                 padding=True,
+                                                 truncation=True,
+                                                 return_tensors="pt").to(self.device)
         with torch.no_grad():
             scores = self.rerank_msmarco_model(**features).logits.cpu()
 
@@ -311,9 +321,7 @@ class TA_Pipeline:
         TODO: make it so we can save the 'self.doc' object to disk and load it later.
         """
         self.user_question = user_question
-        answer = self.pipeline(question=self.user_question,
-                               **self.doc.context,
-                               top_k=num_answers_generated)
+        answer = self.pipeline(question=self.user_question, **self.doc.context, top_k=num_answers_generated)
         # todo: this has page numbers, that's nice.
         return answer[0]['answer']
 
@@ -321,13 +329,12 @@ class TA_Pipeline:
         """ Run CLIP. 
     Returns a list of images in all cases. 
     """
-        imgs = self.clip_search_class.text_to_image_search(
-            search_text=search_question, top_k_to_return=num_images_returned)
+        imgs = self.clip_search_class.text_to_image_search(search_text=search_question,
+                                                           top_k_to_return=num_images_returned)
 
         img_path_list = []
         for img in imgs:
-            img_path_list.append(
-                os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
+            img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
         print("Final image path: ", img_path_list)
 
         return img_path_list
@@ -341,23 +348,17 @@ class TA_Pipeline:
             prompt = """Generate an objective, formal and logically sound answer to this question, based on the given context. 
             The answer must spur curiosity, enable interactive discussions and make the user ask further questions. 
             It should be interesting and use advanced vocabulary and complex sentence structures.
-            Context : """ + context.replace(
-                "\n", " ") + "\nQuestion:" + question.replace(
-                    "\n", " ") + "\nAnswer:"
+            Context : """ + context.replace("\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
         elif any(word in question for word in causal):
             prompt = """Generate a procedural, knowledgeable and reasoning-based answer about this question, based on the given context. 
             The answer must use inference mechanisms and logic to subjectively discuss the topic. It should be creative and logic-oriented, analytical and extensive. Context :""" + context.replace(
-                "\n", " ") + "\nQuestion:" + question.replace(
-                    "\n", " ") + "\nAnswer:"
+                "\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
         elif any(word in question for word in listing):
             prompt = """Generate a list-type, descriptive answer to this question, based on the given context. 
             The answer should be very detailed and contain reasons, explanations and elaborations about the topic. It should be interesting and use advanced vocabulary and complex sentence structures. Context :""" + context.replace(
-                "\n", " ") + "\nQuestion:" + question.replace(
-                    "\n", " ") + "\nAnswer:"
+                "\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
         else:
             prompt = """Generate a detailed, interesting answer to this question, based on the given context. 
             The answer must be engaging and provoke interactions. It should use academic language and a formal tone. 
-            Context : """ + context.replace(
-                "\n", " ") + "\nQuestion:" + question.replace(
-                    "\n", " ") + "\nAnswer:"
+            Context : """ + context.replace("\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
         return prompt
