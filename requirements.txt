@@ -10,3 +10,5 @@ datasets
 rouge
 openai
 python-pptx
+pinecone-client
+langchain
