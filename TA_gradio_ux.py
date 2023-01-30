@@ -52,7 +52,17 @@ class TA_Gradio():
         self.device = torch.device(args.device)
         self.ta = main.TA_Pipeline(
             device=self.device,
-            opt_weight_path=args.model_weight)  # ,trt_path=args.trt_path)
+            opt_weight_path=args.model_weight,
+            ct2_path = "../data/models/opt_acc/opt_1.3b_fp16",
+            is_server = True,
+            device_index = [0,3],
+            n_stream = 2
+            )  
+        # accelerate OPT model (optimized model with multiple instances, parallel execution): 
+        # ct2_path = "../data/models/opt_acc/opt_1.3b_fp16",
+        # is_server = True,
+        # device_index = [0,1],
+        # n_stream = 3
 
     def run_clip(self, user_question: str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)

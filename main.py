@@ -10,7 +10,9 @@ sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
 
 # set environment variable huggingface cache path to ~/
-os.environ['TRANSFORMERS_CACHE'] = '/home/kastanday/project'
+# os.environ['TRANSFORMERS_CACHE'] = '/home/kastanday/project'
+os.environ['TRANSFORMERS_CACHE'] = '../data/cache'
+
 
 # for CLIP
 import clip
@@ -47,13 +49,25 @@ class TA_Pipeline:
     def __init__(self,
                  opt_weight_path=None,
                  trt_path=None,
+                 ct2_path = None,
+                 is_server = False,
+                 device_index = None,
+                 n_stream = None,
                  device=torch.device("cuda:0"),
                  use_clip=False):
 
         # init parameters
         self.device = device
         self.opt_weight_path = opt_weight_path
+        
+        # OPT acceleration 
         self.trt_path = trt_path
+        self.ct2_path = ct2_path
+        self.is_server = is_server
+        self.device_index = device_index
+        self.n_stream = n_stream 
+        
+        
         self.LECTURE_SLIDES_DIR = os.path.join(os.getcwd(), "lecture_slides")
 
         # Retriever model: contriever
@@ -109,9 +123,20 @@ class TA_Pipeline:
         """ Load OPT model """
 
         # todo: is this the right way to instantiate this model?
+        # single instance
+        # self.opt_model = opt_model(
+        #     "facebook/opt-1.3b",
+        #     device=self.device)  
+        
+        # multiple instances 
         self.opt_model = opt_model(
             "facebook/opt-1.3b",
-            device=self.device)  # trt_path = self.trt_path
+            ct2_path = self.ct2_path,
+            device = self.device,
+            is_server = self.is_server,
+            device_index = self.device_index,
+            n_stream = self.n_stream
+        )
 
         if (self.opt_weight_path != None and self.trt_path == None):
             self.opt_model.load_checkpoint(self.opt_weight_path)
@@ -210,10 +235,13 @@ class TA_Pipeline:
         """ Run OPT """
         response_list = []
         assert num_answers_generated == len(top_context_list)
-        for i in range(num_answers_generated):
-            opt_answer = self.opt_model.answer_question(
-                top_context_list[i], user_question, MAX_TEXT_LENGTH)
-            response_list.append(opt_answer)
+        
+        response_list = self.opt_model.answer_question_all(top_context_list,user_question,num_answers_generated,MAX_TEXT_LENGTH)
+        # for i in range(num_answers_generated):
+        #     opt_answer = self.opt_model.answer_question(
+        #         top_context_list[i], user_question, MAX_TEXT_LENGTH)
+        #     response_list.append(opt_answer)
+        
         if print_answers_to_stdout:
             print("Generated Answers:")
             print(
