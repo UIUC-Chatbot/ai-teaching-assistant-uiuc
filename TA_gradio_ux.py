@@ -144,30 +144,30 @@ class TA_Gradio():
 
             # TODO: add OPT back in when Wentao is ready.
             # Run opt answer generation
-            # generated_answers_list = self.ta.OPT(USER_QUESTION,
-            #                                      top_context_list,
-            #                                      NUM_ANSWERS_GENERATED,
-            #                                      print_answers_to_stdout=False)
+            generated_answers_list = self.ta.OPT(USER_QUESTION,
+                                                 top_context_list,
+                                                 NUM_ANSWERS_GENERATED,
+                                                 print_answers_to_stdout=False)
 
             # T5 generations
-            generated_answers_list = self.ta.run_t5_completion(USER_QUESTION,
+            generated_answers_list.extend(self.ta.run_t5_completion(USER_QUESTION,
                                                                top_context_list,
                                                                num_answers_generated=NUM_ANSWERS_GENERATED,
-                                                               print_answers_to_stdout=True)
+                                                               print_answers_to_stdout=True))
         else:
             # TODO: add OPT back in when Wentao is ready.
             # opt: passage + question --> answer
-            # generated_answers_list = self.ta.OPT_one_question_multiple_answers(
-            #     USER_QUESTION,
-            #     user_defined_context,
-            #     num_answers_generated=NUM_ANSWERS_GENERATED,
-            #     print_answers_to_stdout=False)
+            generated_answers_list = self.ta.OPT_one_question_multiple_answers(
+                USER_QUESTION,
+                user_defined_context,
+                num_answers_generated=NUM_ANSWERS_GENERATED,
+                print_answers_to_stdout=False)
 
             # T5 generations
-            generated_answers_list = self.ta.run_t5_completion(USER_QUESTION,
+            generated_answers_list.extend(self.ta.run_t5_completion(USER_QUESTION,
                                                                user_defined_context,
                                                                num_answers_generated=NUM_ANSWERS_GENERATED,
-                                                               print_answers_to_stdout=True)
+                                                               print_answers_to_stdout=True))
 
             # show (the same) user-supplied context for next to each generated answer.
             top_context_list = [user_defined_context] * NUM_ANSWERS_GENERATED
