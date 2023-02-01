@@ -10,6 +10,7 @@ import argparse
 import pprint
 import random
 import time
+from datetime import datetime
 from typing import Dict, List
 
 import gradio as gr
@@ -19,10 +20,11 @@ import torch
 import wandb
 from PIL import Image
 import json
-from rouge import Rouge 
-from datasets import load_metric
 import numpy as np
-
+from langchain.prompts import PromptTemplate
+from langchain.chains import LLMChain
+from langchain.evaluation.qa import QAEvalChain
+from langchain.llms import OpenAI
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -82,29 +84,69 @@ class TA_Gradio():
         """
         self.eval_set_path = eval_set_path
         eval_set = json.load(open(self.eval_set_path, 'r'))
-        eval_question = []
-        eval_answer = []
-        bleu_metric = load_metric('bleu')
-        rouge = Rouge()
-        rouge_score_list, bleu_score_list = [], []
+        eval_qa = []
+        best_generated_answer = []
+        _PROMPT_TEMPLATE = """You are an expert professor specialized in evaluating students' new answers comparing to their previous answers given the same questions.
+                            You are referring the following question:
+                            {query}
+                            Here is the previous answer:
+                            {answer}
+                            You are evaluating the following new answer:
+                            {result}
+                            Do you think the new answer is better than the previous answer? Label as "Better" or "Worse".
+                            """
+        PROMPT = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
         for dataset in [eval_set]:
             for row in dataset:
-                eval_question.append(row['GPT-3-Generations']['question'])
-                eval_answer.append(row['GPT-3-Generations']['answer'])
-        for question, answer in zip(eval_question, eval_answer):
-            generated_answers, _ = self.question_answer(question, "")
-            best_generated_answer = generated_answers["Answer"].head(1).values
-            # rouge score
-            rouge_scores = rouge.get_scores(best_generated_answer[0], answer)
-            rougel_f_score = rouge_scores[0]['rouge-l']['f']
-            rouge_score_list.append(rougel_f_score)
-            # bleu score
-            bleu_scores = bleu_metric.compute(predictions=[best_generated_answer[0].split(' ')],references=[[answer.split(' ')]])
-            bleu_1_socre = bleu_scores['precisions'][0]
-            bleu_score_list.append(bleu_1_socre)
-        overall_rouge_score = np.mean(rouge_score_list)
-        overall_bleu_score = np.mean(bleu_score_list)
-        return overall_rouge_score, overall_bleu_score
+                temp_q_dict = {}
+                temp_new_answer_dict = []
+                temp_question = row['GPT-3-Generations']['question']
+                temp_q_dict['question'] = temp_question
+                temp_q_dict['answer'] = row['GPT-3-Generations']['answer']
+                generated_answers, _ = self.question_answer(temp_question, "")
+                best_generated_answer = generated_answers["Answer"].head(1).values
+                temp_new_answer_dict['text'] = best_generated_answer[0]
+                eval_qa.append(temp_q_dict)
+                best_generated_answer.append(temp_new_answer_dict)
+        
+        # Load LangChain Evaluation pipeline
+        eval_model = OpenAI(temperature=0)
+        evalchain = QAEvalChain.from_llm(llm=eval_model, prompt=PROMPT)
+        # Grade the new model generated answer compared to the original one
+        grader = evalchain.evaluate(eval_qa, best_generated_answer, question_key="question", answer_key="answer", prediction_key="text")
+        
+        # Add the new evaluation results to a new evaluation set (w/ two answers version) 
+        # and the original evaluation set (cover the worse answers)
+        new_eval_set = []
+        updated_eval_set = []
+        for i, row in enumerate(eval_set):
+            new_generated_answer = best_generated_answer[i]['text']
+            grade_label = grader[i]['text'].replace('\n', '')
+            # Create a new evaluation set with the new generated answer        
+            row['Chatbot-Generated-Answer'] = new_generated_answer
+            row['GPT-3-Evaluation'] = grade_label
+            new_eval_set.append(row)
+            # Rewrite the original evluation set with the new generated 'Better' answer
+            if 'Better' in grade_label:
+                row[i]['GPT-3-Generations']['answer'] = new_generated_answer
+                updated_eval_set.append(row)
+            else:
+                updated_eval_set.append(row) 
+                
+        # Write the new evaluation data to the JSON file
+        # Get the current date and time
+        now = datetime.now()
+        # Format the date and time as a string
+        timestamp = now.strftime("%Y-%m-%d_%H-%M")
+        # Create a file name with the date and time as a suffix
+        file_name = "new_evaluation_set_" + timestamp + ".json"
+        # Write the new evaluation data (w/ two compared answers verision) to the JSON file
+        # The format of the JSON file includes: question, original answer, chatbot generated answer, GPT-3 evaluation label
+        with open(file_name, 'w', encoding='utf-8') as f:
+            json.dump(new_eval_set, f, ensure_ascii=False, indent=4) 
+        # Write the updated evaluation data to the JSON file
+        with open('../human_data_review/gpt-3_semantic_search/1_top_quality.json', 'w', encoding='utf-8') as f:
+            json.dump(updated_eval_set, f, ensure_ascii=False, indent=4) 
     
     def question_answer(self, question: str, user_defined_context: str = '', use_gpt3: bool = False, image=None):
         """
@@ -354,7 +396,7 @@ def make_inference_id(name: str) -> str:
 if __name__ == '__main__':
     args = main_arg_parse()
     my_ta = TA_Gradio(args)
-    # rouge, bleu = my_ta.model_evaluation()
+    # my_ta.model_evaluation()
     my_ta.main()
     
 
