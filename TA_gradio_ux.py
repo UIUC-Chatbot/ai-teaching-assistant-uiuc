@@ -75,17 +75,19 @@ class TA_Gradio():
 
     def model_evaluation(self, eval_set_path: str = '/home/zhiweny2/chatbotai/jerome/human_data_review/1_top_quality.json'):
         """
-        Args:user_question (str): questions from the human filtered eval set
+        Args: evaluation set path: dataset path for GPT-3 evaluation
 
-        Returns: the rouge-L and bleu1 scores for each user's question compared to the human labeled answers
+        Returns: output TWO result files
+        1. Generate a .json file which contains {question, original answer, new generated answer, GPT-3 grade}
+        2. Generate a new .json eval set, which contains {question, new better answer}
         
-        overall_rouge_score: the average RougeL f1 score for all the questions in eval set
-        overall_bleu_score: the average Bleu1 score for all the questions in eval set
+        Change each file path you would like to evaluate or generate
         """
         self.eval_set_path = eval_set_path
         eval_set = json.load(open(self.eval_set_path, 'r'))
         eval_qa = []
         best_generated_answer = []
+        # Create a prompt for generate GPT-3 grade label
         _PROMPT_TEMPLATE = """You are an expert professor specialized in evaluating students' new answers comparing to their previous answers given the same questions.
                             You are referring the following question:
                             {query}
