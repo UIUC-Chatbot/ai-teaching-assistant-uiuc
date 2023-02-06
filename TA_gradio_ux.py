@@ -73,7 +73,7 @@ class TA_Gradio():
     def run_clip(self, user_question: str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)
 
-    def model_evaluation(self, eval_set_path: str = '/home/zhiweny2/chatbotai/jerome/human_data_review/1_top_quality.json'):
+    def model_evaluation(self, eval_set_path: str = '../human_data_review/1_top_quality.json'):
         """
         Args: evaluation set path: dataset path for GPT-3 evaluation
 
@@ -101,7 +101,7 @@ class TA_Gradio():
         
         # Process eval set to match LangChain requirements
         for dataset in [eval_set]:
-            for row in dataset[:15]:
+            for row in dataset:
                 temp_q_dict = {}
                 temp_new_answer_dict = []
                 temp_question = row['GPT-3-Generations']['question']
@@ -143,7 +143,7 @@ class TA_Gradio():
         # Format the date and time as a string
         timestamp = now.strftime("%Y-%m-%d_%H-%M")
         # Create a file name with the date and time as a suffix
-        file_name = "new_evaluation_set_" + timestamp + ".json"
+        file_name = "../human_data_review/" + "new_evaluation_set_" + timestamp + ".json"
         # Write the new evaluation data (w/ two compared answers verision) to the JSON file
         # The format of the JSON file includes: question, original answer, chatbot generated answer, GPT-3 evaluation label
         # Change the path you want to save this file for human comparision only
@@ -151,7 +151,7 @@ class TA_Gradio():
             json.dump(new_eval_set, f, ensure_ascii=False, indent=4) 
         # Write the updated evaluation data to the JSON file 
         # Change the path you want to save this updated eval set for further evaluation
-        with open('/home/zhiweny2/chatbotai/jerome/main_fn/new_eval_set.json', 'w', encoding='utf-8') as f:
+        with open('../human_data_review/new_eval_set.json', 'w', encoding='utf-8') as f:
             json.dump(updated_eval_set, f, ensure_ascii=False, indent=4) 
     
     def question_answer(self, question: str, user_defined_context: str = '', use_gpt3: bool = False, image=None):
@@ -402,7 +402,7 @@ def make_inference_id(name: str) -> str:
 if __name__ == '__main__':
     args = main_arg_parse()
     my_ta = TA_Gradio(args)
-    my_ta.model_evaluation()
-    # my_ta.main()
+    # my_ta.model_evaluation()
+    my_ta.main()
     
 
