@@ -59,8 +59,7 @@ class TA_Gradio():
         self.ta = main.TA_Pipeline(
             device=self.device,
             opt_weight_path=args.model_weight,
-            # ct2_path = "../data/models/opt_acc/opt_1.3b_fp16",
-            ct2_path = "/home/zhiweny2/chatbotai/production_deployment/data/models/opt_acc/opt_1.3b_fp16",
+            ct2_path = "../data/models/opt_acc/opt_1.3b_fp16",
             is_server = True,
             device_index = [0,3],
             n_stream = 2
@@ -123,7 +122,6 @@ class TA_Gradio():
         # and the original evaluation set (cover the worse answers)
         new_eval_set = []
         updated_eval_set = []
-        print(best_generated_answer)
         for i, row in enumerate(eval_set):
             new_generated_answer = best_generated_answer[i]['text']
             grade_label = grader[i]['text'].replace('\n', '')
@@ -133,7 +131,7 @@ class TA_Gradio():
             new_eval_set.append(row)
             # Rewrite the original evluation set with the new generated 'Better' answer
             if 'Better' in grade_label:
-                row[i]['GPT-3-Generations']['answer'] = new_generated_answer
+                row['GPT-3-Generations']['answer'] = new_generated_answer
                 updated_eval_set.append(row)
             else:
                 updated_eval_set.append(row) 
@@ -406,7 +404,7 @@ def make_inference_id(name: str) -> str:
 if __name__ == '__main__':
     args = main_arg_parse()
     my_ta = TA_Gradio(args)
-    my_ta.model_evaluation()
-    # my_ta.main()
+    # my_ta.model_evaluation()
+    my_ta.main()
     
 
