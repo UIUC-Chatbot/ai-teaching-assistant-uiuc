@@ -313,7 +313,6 @@ class TA_Pipeline:
         """ Run OPT """
         response_list = []
         assert num_answers_generated == len(top_context_list)
-        
         response_list = self.opt_model.answer_question_all(top_context_list,user_question,num_answers_generated,MAX_TEXT_LENGTH)
         # for i in range(num_answers_generated):
         #     opt_answer = self.opt_model.answer_question(

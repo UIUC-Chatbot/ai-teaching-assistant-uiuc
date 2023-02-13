@@ -59,7 +59,8 @@ class TA_Gradio():
         self.ta = main.TA_Pipeline(
             device=self.device,
             opt_weight_path=args.model_weight,
-            ct2_path = "../data/models/opt_acc/opt_1.3b_fp16",
+            # ct2_path = "../data/models/opt_acc/opt_1.3b_fp16",
+            ct2_path = "/home/zhiweny2/chatbotai/production_deployment/data/models/opt_acc/opt_1.3b_fp16",
             is_server = True,
             device_index = [0,3],
             n_stream = 2
@@ -73,7 +74,7 @@ class TA_Gradio():
     def run_clip(self, user_question: str, num_images_returned: int = 4):
         return self.ta.clip(user_question, num_images_returned)
 
-    def model_evaluation(self, eval_set_path: str = '../human_data_review/1_top_quality.json'):
+    def model_evaluation(self, eval_set_path: str = '/home/zhiweny2/chatbotai/jerome/human_data_review/gpt-3_semantic_search/1_top_quality.json'):
         """
         Args: evaluation set path: dataset path for GPT-3 evaluation
 
@@ -103,13 +104,12 @@ class TA_Gradio():
         for dataset in [eval_set]:
             for row in dataset:
                 temp_q_dict = {}
-                temp_new_answer_dict = []
+                temp_new_answer_dict = {}
                 temp_question = row['GPT-3-Generations']['question']
                 temp_q_dict['question'] = temp_question
                 temp_q_dict['answer'] = row['GPT-3-Generations']['answer']
                 generated_answers, _ = self.question_answer(temp_question, "")
-                best_generated_answer = generated_answers["Answer"].head(1).values
-                temp_new_answer_dict['text'] = best_generated_answer[0]
+                temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
                 eval_qa.append(temp_q_dict)
                 best_generated_answer.append(temp_new_answer_dict)
         
@@ -123,6 +123,7 @@ class TA_Gradio():
         # and the original evaluation set (cover the worse answers)
         new_eval_set = []
         updated_eval_set = []
+        print(best_generated_answer)
         for i, row in enumerate(eval_set):
             new_generated_answer = best_generated_answer[i]['text']
             grade_label = grader[i]['text'].replace('\n', '')
@@ -143,7 +144,7 @@ class TA_Gradio():
         # Format the date and time as a string
         timestamp = now.strftime("%Y-%m-%d_%H-%M")
         # Create a file name with the date and time as a suffix
-        file_name = "../human_data_review/" + "new_evaluation_set_" + timestamp + ".json"
+        file_name = "/home/zhiweny2/chatbotai/jerome/human_data_review/" + "gpt3_graded_set_" + timestamp + ".json"
         # Write the new evaluation data (w/ two compared answers verision) to the JSON file
         # The format of the JSON file includes: question, original answer, chatbot generated answer, GPT-3 evaluation label
         # Change the path you want to save this file for human comparision only
@@ -151,7 +152,7 @@ class TA_Gradio():
             json.dump(new_eval_set, f, ensure_ascii=False, indent=4) 
         # Write the updated evaluation data to the JSON file 
         # Change the path you want to save this updated eval set for further evaluation
-        with open('../human_data_review/new_eval_set.json', 'w', encoding='utf-8') as f:
+        with open('/home/zhiweny2/chatbotai/jerome/human_data_review/new_eval_set.json', 'w', encoding='utf-8') as f:
             json.dump(updated_eval_set, f, ensure_ascii=False, indent=4) 
     
     def question_answer(self, question: str, user_defined_context: str = '', use_gpt3: bool = False, image=None):
@@ -166,7 +167,7 @@ class TA_Gradio():
         """
         start_time = time.monotonic()
         # we generate many answers, then filter it down to the best scoring ones (w/ msmarco).
-        NUM_ANSWERS_GENERATED = 3
+        NUM_ANSWERS_GENERATED = 3 
         NUM_ANSWERS_TO_SHOW_USER = 3
         NUM_IMAGES_TO_SHOW_USER = 4  # 4 is good for gradio image layout
         USER_QUESTION = str(question)
@@ -222,16 +223,19 @@ class TA_Gradio():
 
         # rank potential answers
         # todo: rank both!!
-        final_scores = self.ta.re_ranking_ms_marco(generated_answers_list, USER_QUESTION)
+        final_scores = self.ta.re_ranking_ms_marco(generated_answers_list[3:], USER_QUESTION)
 
         # return a pd datafarme, to display a gr.dataframe
         results = {
-            'Answer': generated_answers_list,
+            'Answer': generated_answers_list[3:],
             # append page number and textbook name to each context
             'Context': [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)],
+            # 'Context': top_context_list,
             'Score': final_scores,
         }
-
+        print(len(generated_answers_list))
+        print(len(top_context_list))
+        print(len(final_scores))
         # sort results by MSMarco ranking
         generated_results_df = pd.DataFrame(results).sort_values(by=['Score'],
                                                                  ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
@@ -402,7 +406,7 @@ def make_inference_id(name: str) -> str:
 if __name__ == '__main__':
     args = main_arg_parse()
     my_ta = TA_Gradio(args)
-    # my_ta.model_evaluation()
-    my_ta.main()
+    my_ta.model_evaluation()
+    # my_ta.main()
     
 
