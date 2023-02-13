@@ -84,8 +84,9 @@ class TA_Pipeline:
         self.t5_tokenizer = None
 
         # Reranker
-        self.rerank_msmarco_model = None
-        self.rerank_msmarco_tokenizer = None
+        # Switch jkmin3 and josh to desired name for other name
+        self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('/home/jkmin3/chatbotai/josh/data-generator/ranking_models/fine_tuning_MSmarco/final')
+        self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('/home/jkmin3/chatbotai/josh/data-generator/ranking_models/fine_tuning_MSmarco/final')
         # DocQuery pipeline
         self.pipeline = None
         self.doc = None
