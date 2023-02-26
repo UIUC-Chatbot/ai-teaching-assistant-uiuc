@@ -65,6 +65,7 @@ class TA_Pipeline:
         # init parameters
         self.device = device
         self.opt_weight_path = opt_weight_path
+        self.num_answers_generated = 3
         
         # OPT acceleration 
         self.trt_path = trt_path
@@ -212,6 +213,9 @@ class TA_Pipeline:
                                              temperature=1.5,
                                              repetition_penalty=2.5)
             single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+            print("single answer: ", single_answer)
+            yield single_answer
+            
             response_list.append(single_answer)
             if print_answers_to_stdout:
                 # print("Single answer:", single_answer)
@@ -222,6 +226,24 @@ class TA_Pipeline:
             print("Generated Answers:")
             print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
         return response_list
+        
+    def yield_text_answer(self, user_question: str = '', user_defined_context: str = '',):
+        if user_defined_context:
+            top_context_list = [user_defined_context * self.num_answers_generated]
+        else:
+            top_context_documents = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
+            top_context_list = [doc.page_content for doc in top_context_documents]
+        
+        for i, ans in enumerate(self.run_t5_completion(user_question=user_question,
+                                    top_context_list=top_context_list,
+                                    num_answers_generated=self.num_answers_generated,
+                                    print_answers_to_stdout=False)):
+            yield ans, top_context_list[i]
+        # yield self.run_t5_completion(user_question=user_question,
+        #                             top_context_list=top_context_list,
+        #                             num_answers_generated=self.num_answers_generated,
+        #                             print_answers_to_stdout=False)
+
 
     def gpt3_completion(self,
                         question,
