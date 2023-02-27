@@ -13,7 +13,8 @@ import random
 import time
 from datetime import datetime
 from typing import Dict, List
-
+import main
+import wandb
 import gradio as gr
 import numpy as np
 import pandas as pd
@@ -21,13 +22,8 @@ import torch
 from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
-from langchain.prompts import PromptTemplate
-from PIL import Image
-
-import main
-import wandb
-from gpu_memory_utils import (get_device_with_most_free_memory,
-                              get_gpu_ids_with_sufficient_memory)
+import prompting
+from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -72,6 +68,7 @@ class TA_Gradio():
                                ct2_path="../data/models/opt_acc/opt_1.3b_fp16",
                                is_server=True,
                                device_index_list=opt_device_list)
+    self.prompter = prompting.Prompt_LLMs()
     wandb.init(project=args.wandb_project, entity=args.wandb_entity)
 
   def run_clip(self, user_question: str, num_images_returned: int = 4):
@@ -282,19 +279,34 @@ class TA_Gradio():
     # log a new table for each time our app is used. Can't figure out how to append to them easily.
     wandb.log({make_inference_id('Inference_made'): results_table})
 
-  def add_gpt3_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str]) -> pd.DataFrame:
+  def add_gpt3_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str], use_equation_prompt:bool=False) -> pd.DataFrame:
     """
       GPT3 for comparison to SOTA.
       This answer is ALWAYS shown to the user, no matter the score. It's the first element in the dataframe. 
       It is scored by the ranker, but it is not subject to filtering like the other generations are.
       """
-    generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0])
-
+    generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
     score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
 
     gpt3_result = {
         'Answer': [generated_answer],
         'Context': [top_context_list[0]],
+        'Score': score,  # score is already a list
+    }
+    df_to_append = pd.DataFrame(gpt3_result)
+    return pd.concat([df_to_append, results_df], ignore_index=True)
+  
+  def add_gpt3_fewshot_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str]) -> pd.DataFrame:
+    """
+    GPT3 few shot for comparison to SOTA.
+    Note : few shot doesn't use context.
+    This answer is ALWAYS shown to the user, no matter the score. It is not subject to score filtering like the other generations are.
+    """
+    generated_answer = "GPT-3 few-shot response:\n" + self.prompter.GPT3_fewshot(user_question)
+    score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
+    gpt3_result = {
+        'Answer': [generated_answer],
+        'Context': [top_context_list[0]], #context is not used in few shot answer generation
         'Score': score,  # score is already a list
     }
     df_to_append = pd.DataFrame(gpt3_result)
@@ -312,7 +324,7 @@ class TA_Gradio():
     history.append((message, final_out))
     return history
 
-  def load_text_answer(self, question, context, use_gpt3):
+  def load_text_answer(self, question, context, use_gpt3, use_equation_checkbox):
     '''
     This function is called when the user clicks the "Generate Answer" button.
     It collects responses and updates the gradio interface iteratively as we get new responses. 
@@ -357,7 +369,7 @@ class TA_Gradio():
     if use_gpt3:
       # call gpt3 function
       print("GPT-3 FLAG CHECK")
-      generated_results_df = self.add_gpt3_response(generated_results_df, question, top_context_list)
+      generated_results_df = self.add_gpt3_response(generated_results_df, question, top_context_list, use_equation_checkbox)
       # gpt3 answer is the last update
       new_list[-1] = gr.update(value=str(generated_results_df['Answer'][0]))
 
@@ -393,6 +405,7 @@ class TA_Gradio():
                                placeholder="(Optional) we'll use the paragraph to generate an answer to your question.")
           # gr.Markdown("""Try searching for:""")
           use_gpt3_checkbox = gr.Checkbox(label="Include GPT-3 (paid)?")
+          use_equation_checkbox = gr.Checkbox(label="Include equations?")
           examples = gr.Examples(
               examples=[
                   ["What is a Finite State Machine?"],
@@ -472,7 +485,7 @@ class TA_Gradio():
         #                   scroll_to_output=True)
 
         run.click(fn=self.load_text_answer,
-                  inputs=[search_question, context, use_gpt3_checkbox],
+                  inputs=[search_question, context, use_gpt3_checkbox, use_equation_checkbox],
                   outputs=[generated_answer1, context1, generated_answer2, context2, generated_answer3, context3, best_answer, gpt3_answer])
 
         # with gr.Row():

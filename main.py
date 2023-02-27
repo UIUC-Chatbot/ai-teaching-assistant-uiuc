@@ -16,6 +16,7 @@ sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
+import prompting
 
 # set huggingface cace to our base dir, so we all share it.
 os.environ['TRANSFORMERS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/transformers'
@@ -94,6 +95,9 @@ class TA_Pipeline:
     self.t5_model = None
     self.t5_tokenizer = None
 
+    #prompting
+    self.prompter = prompting.Prompt_LLMs()
+
     # Clip for image search
     if use_clip:
       self.clip_search_class = None
@@ -111,22 +115,36 @@ class TA_Pipeline:
       user_question: str = '',
       user_defined_context: str = '',
   ):
+    '''
+    This is called by the Gradio app to yeild completions. Right now it only calls T5, would be best to have OPT, too.
+    '''
     if user_defined_context:
       top_context_list = [user_defined_context * self.num_answers_generated]
     else:
-      top_context_documents = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
-      top_context_list = [doc.page_content for doc in top_context_documents]
+      top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
-    yield self.run_t5_completion(user_question=user_question,
-                                 top_context_list=top_context_list,
-                                 num_answers_generated=self.num_answers_generated,
-                                 print_answers_to_stdout=False)
+    for i, ans in enumerate(
+        self.run_t5_completion(user_question=user_question,
+                               top_context_list=top_context_list,
+                               num_answers_generated=self.num_answers_generated,
+                               print_answers_to_stdout=False)):
+      yield ans, top_context_list[i]
+
+  # def yield_text_answer(
+  #   self,
+  #   user_question: str = '',
+  #   user_defined_context: str = ''):
+
+  # if user_defined_context:
+  #   top_context_list = [user_defined_context * self.num_answers_generated]
+  # else:
+  #   top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
   def load_modules(self):
-    self._load_opt()
+    # self._load_opt()
+    # self._load_et()
     self._load_reranking_ms_marco()
     self._load_contriever()
-    self._load_et()
     self._load_t5()
     self._load_pinecone_vectorstore()
     # TODO: install doc-query dependencies
@@ -149,13 +167,6 @@ class TA_Pipeline:
 
   def _load_opt(self):
     """ Load OPT model """
-
-    # todo: is this the right way to instantiate this model?
-    # single instance
-    # self.opt_model = opt_model(
-    #     "facebook/opt-1.3b",
-    #     device=self.device)
-
     # multiple instances
     self.opt_model = opt_model("facebook/opt-1.3b",
                                ct2_path=self.ct2_path,
@@ -183,27 +194,6 @@ class TA_Pipeline:
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc.
     self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
 
-  def yield_text_answer(
-      self,
-      user_question: str = '',
-      user_defined_context: str = '',
-  ):
-    '''
-    This is called by the Gradio app to yeild completions. Right now it only calls T5, would be best to have OPT, too.
-    '''
-    if user_defined_context:
-      top_context_list = [user_defined_context * self.num_answers_generated]
-    else:
-      top_context_documents = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
-      top_context_list = [doc.page_content for doc in top_context_documents]
-
-    for i, ans in enumerate(
-        self.run_t5_completion(user_question=user_question,
-                               top_context_list=top_context_list,
-                               num_answers_generated=self.num_answers_generated,
-                               print_answers_to_stdout=False)):
-      yield ans, top_context_list[i]
-
   def _load_t5(self):
     self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xxl")
 
@@ -215,6 +205,74 @@ class TA_Pipeline:
     )
     #max_memory=get_free_memory_dict())
     # self.t5_model = torch.compile(self.t5_model) # no real speedup :(
+  def t5(self, text):
+      # todo: tune the correct cuda device number.
+      inputs = self.t5_tokenizer(text, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
+      outputs = self.t5_model.generate(**inputs,
+                                          max_new_tokens=256,
+                                          num_beams=3,
+                                          early_stopping=True,
+                                          temperature=1.5,
+                                          repetition_penalty=2.5)
+      single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+      return single_answer
+      
+  def T5_fewshot(self, user_question: str , top_context_list: List = None, num_answers_generated: int = None, print_answers_to_stdout: bool = False):
+      """ Run T5 generator -few shot prompting """
+      if num_answers_generated is None:
+        num_answers_generated= self.num_answers_generated
+      response_list = []
+      assert num_answers_generated == len(
+          top_context_list), "There must be a unique context for each generated answer. "
+      for i in range(num_answers_generated):
+          examples = """
+          Task: Open book QA. Question: How do I check for overflow in a 2's complement operation. Answer: Overflow can be indicated in a 2's complement if the result has the wrong sign, such as if 2 positive numbers sum to a negative number or if 2 negative numbers sum to positive numbers.
+          Task: Open book QA. Question: What is the order of precedence in C programming? Answer: PEMDAS (Parenthesis, Exponents, Multiplication, Division, Addition, Subtraction)
+          Task: Open book QA. Question: Why would I use a constructive construct in C? Answer: A conditional construct would be used in C when you want a section of code to make decisions about what to execute based on certain conditions specified by you in the code. 
+          """
+          new_shot = examples + "Task: Open book QA. Question: %s \nContext : %s \nAnswer : " % (user_question, top_context_list[i])
+          single_answer = self.t5(new_shot)
+          response_list.append(single_answer)
+      return response_list
+
+  def gpt3_completion(self,
+                      question,
+                      context,
+                      equation:bool = False, cot:bool = False,
+                      model='text-davinci-003',
+                      temp=0.7,
+                      top_p=1.0,
+                      tokens=1000,
+                      freq_pen=1.0,
+                      pres_pen=0.0) -> str:
+      """ run gpt-3 for SOTA comparision, without few-shot prompting
+      question : user_question 
+      context : retrieved context
+      [OPTIONAL] : equation flag to include equations
+      [OPTIONAL] : chain-of-thought triggered by "Let's think step by step."
+      """
+      prompt = self.prompter.prepare_prompt(question, context, equation, cot)
+      max_retry = 5
+      retry = 0
+      prompt = prompt.encode(encoding='utf-8', errors='ignore').decode()  # force it to fix any unicode errors
+      while True:
+          try:
+              response = openai.Completion.create(model=model,
+                                                  prompt=prompt,
+                                                  temperature=temp,
+                                                  max_tokens=tokens,
+                                                  top_p=top_p,
+                                                  frequency_penalty=freq_pen,
+                                                  presence_penalty=pres_pen)
+              text = response['choices'][0]['text'].strip()
+              return text
+          except Exception as oops:
+              retry += 1
+              if retry >= max_retry:
+                  return "GPT3 error: %s" % oops
+              print('Error communicating with OpenAI:', oops)
+              # todo: log to wandb.
+
 
   def run_t5_completion(self,
                         user_question: str = '',
@@ -233,20 +291,10 @@ class TA_Pipeline:
     for i in range(num_answers_generated):
       inner_time = time.monotonic()
       PROMPT = f"Task: Open book QA. Question: {user_question} Context: {top_context_list[i]}. Answer:"
-
-      # generate always happens on device cuda:0, I think. Has to be hardcoded.
-      inputs = self.t5_tokenizer(PROMPT, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
-      outputs = self.t5_model.generate(**inputs,
-                                       max_new_tokens=256,
-                                       num_beams=3,
-                                       early_stopping=True,
-                                       temperature=1.5,
-                                       repetition_penalty=2.5)
-      single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-
+      single_answer = self.t5(PROMPT)
+      response_list.append(single_answer)
       yield single_answer
 
-      response_list.append(single_answer)
       if print_answers_to_stdout:
         # print("Single answer:", single_answer)
         print(f"⏰ T5 runtime for SINGLE generation: {(time.monotonic() - inner_time):.2f} seconds")
@@ -257,37 +305,6 @@ class TA_Pipeline:
       print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
     # return response_list
 
-  def gpt3_completion(self,
-                      question,
-                      context,
-                      model='text-davinci-003',
-                      temp=0.7,
-                      top_p=1.0,
-                      tokens=1000,
-                      freq_pen=0.0,
-                      pres_pen=0.0) -> str:
-
-    prompt = self.prepare_prompt(question, context)
-    max_retry = 5
-    retry = 0
-    prompt = prompt.encode(encoding='utf-8', errors='ignore').decode()  # force it to fix any unicode errors
-    while True:
-      try:
-        response = openai.Completion.create(model=model,
-                                            prompt=prompt,
-                                            temperature=temp,
-                                            max_tokens=tokens,
-                                            top_p=top_p,
-                                            frequency_penalty=freq_pen,
-                                            presence_penalty=pres_pen)
-        text = response['choices'][0]['text'].strip()
-        return text
-      except Exception as oops:
-        retry += 1
-        if retry >= max_retry:
-          return "GPT3 error: %s" % oops
-        print('Error communicating with OpenAI:', oops)
-        # todo: log to wandb.
 
   def et_main(self, user_utter):
     qr_user_utter, topic, history = self.et.main(user_utter)
@@ -314,7 +331,15 @@ class TA_Pipeline:
     '''
     if topk is None:
       topk = self.num_answers_generated
-    relevant_context_list = self.vectorstore.similarity_search(user_question, k=topk)
+
+    # similarity search
+    top_context_list = self.vectorstore.similarity_search(user_question, k=topk)
+
+    # add the source info to the bottom of the context.
+    top_context_metadata = [
+        f"Source: page {int(doc.metadata['page_number'])} in {doc.metadata['textbook_name']}" for doc in top_context_list
+    ]
+    relevant_context_list = [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
     return relevant_context_list
 
   def retrieve(self, user_question: str, topk: int = None):
@@ -358,10 +383,6 @@ class TA_Pipeline:
     assert num_answers_generated == len(top_context_list)
     max_text_length = 256
     response_list = self.opt_model.answer_question_all(top_context_list, user_question, num_answers_generated, max_text_length)
-    # for i in range(num_answers_generated):
-    #     opt_answer = self.opt_model.answer_question(
-    #         top_context_list[i], user_question, MAX_TEXT_LENGTH)
-    #     response_list.append(opt_answer)
 
     if print_answers_to_stdout:
       print("Generated Answers:")
@@ -421,26 +442,3 @@ class TA_Pipeline:
 
     return img_path_list
 
-  def prepare_prompt(self, question: str, context: str) -> str:
-    """prepares prompt based on type of question - factoid, causal or listing"""
-    factoid = ["What", "Where", "When", "Explain", "Discuss", "Clarify"]
-    causal = ["Why", "How"]
-    listing = ["List", "Break down"]
-    if any(word in question for word in factoid):
-      prompt = """Generate an objective, formal and logically sound answer to this question, based on the given context. 
-            The answer must spur curiosity, enable interactive discussions and make the user ask further questions. 
-            It should be interesting and use advanced vocabulary and complex sentence structures.
-            Context : """ + context.replace("\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
-    elif any(word in question for word in causal):
-      prompt = """Generate a procedural, knowledgeable and reasoning-based answer about this question, based on the given context. 
-            The answer must use inference mechanisms and logic to subjectively discuss the topic. It should be creative and logic-oriented, analytical and extensive. Context :""" + context.replace(
-          "\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
-    elif any(word in question for word in listing):
-      prompt = """Generate a list-type, descriptive answer to this question, based on the given context. 
-            The answer should be very detailed and contain reasons, explanations and elaborations about the topic. It should be interesting and use advanced vocabulary and complex sentence structures. Context :""" + context.replace(
-          "\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
-    else:
-      prompt = """Generate a detailed, interesting answer to this question, based on the given context. 
-            The answer must be engaging and provoke interactions. It should use academic language and a formal tone. 
-            Context : """ + context.replace("\n", " ") + "\nQuestion:" + question.replace("\n", " ") + "\nAnswer:"
-    return prompt
