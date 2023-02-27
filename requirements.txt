@@ -12,3 +12,7 @@ openai
 python-pptx
 pinecone-client
 langchain
+ctranslate2
+accelerate
+sentence-transformers
+gputil
