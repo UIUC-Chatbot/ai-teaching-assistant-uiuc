@@ -1,3 +1,4 @@
+# import ray
 import json
 import os
 import pathlib
@@ -6,10 +7,11 @@ import time
 from typing import Any, Dict, List
 
 import pinecone  # cloud-hosted vector database for context retrieval
-import ray
+# for vector search
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
 
+# for auto-gpu selection
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
 sys.path.append("../data-generator")
