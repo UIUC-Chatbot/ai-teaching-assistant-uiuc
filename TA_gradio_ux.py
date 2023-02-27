@@ -13,8 +13,7 @@ import random
 import time
 from datetime import datetime
 from typing import Dict, List
-import main
-import wandb
+
 import gradio as gr
 import numpy as np
 import pandas as pd
@@ -22,7 +21,10 @@ import torch
 from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
+
+import main
 import prompting
+import wandb
 from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -279,7 +281,11 @@ class TA_Gradio():
     # log a new table for each time our app is used. Can't figure out how to append to them easily.
     wandb.log({make_inference_id('Inference_made'): results_table})
 
-  def add_gpt3_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str], use_equation_prompt:bool=False) -> pd.DataFrame:
+  def add_gpt3_response(self,
+                        results_df: pd.DataFrame,
+                        user_question,
+                        top_context_list: List[str],
+                        use_equation_prompt: bool = False) -> pd.DataFrame:
     """
       GPT3 for comparison to SOTA.
       This answer is ALWAYS shown to the user, no matter the score. It's the first element in the dataframe. 
@@ -295,7 +301,7 @@ class TA_Gradio():
     }
     df_to_append = pd.DataFrame(gpt3_result)
     return pd.concat([df_to_append, results_df], ignore_index=True)
-  
+
   def add_gpt3_fewshot_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str]) -> pd.DataFrame:
     """
     GPT3 few shot for comparison to SOTA.
@@ -306,7 +312,7 @@ class TA_Gradio():
     score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
     gpt3_result = {
         'Answer': [generated_answer],
-        'Context': [top_context_list[0]], #context is not used in few shot answer generation
+        'Context': [top_context_list[0]],  #context is not used in few shot answer generation
         'Score': score,  # score is already a list
     }
     df_to_append = pd.DataFrame(gpt3_result)
@@ -331,12 +337,7 @@ class TA_Gradio():
     At the end, it shows a 'main answer' after all answers are generated AND ranked.
     '''
     # contexts
-    top_context_documents = self.ta.retrieve_contexts_from_pinecone(user_question=question, topk=NUM_ANSWERS_GENERATED)
-    top_context_metadata = [f"Source: page {int(doc.metadata['page_number'])} in {doc.metadata['textbook_name']}" for doc in top_context_documents]
-    top_context_list = [doc.page_content for doc in top_context_documents]
-
-    #print("TOP CONTEXT LIST: ", top_context_list)
-
+    top_context_list = self.ta.retrieve_contexts_from_pinecone(user_question=question, topk=NUM_ANSWERS_GENERATED)
 
     self.generated_answers_list = []
     self.retrieved_context_list = []
@@ -358,12 +359,12 @@ class TA_Gradio():
     results = {
         'Answer': self.generated_answers_list,
         # append page number and textbook name to each context
-        'Context': [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)],
+        'Context': top_context_list,
         'Score': final_scores
     }
 
     generated_results_df = pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
-    
+
     new_list = [gr.update() for j in range(8)]
 
     if use_gpt3:
@@ -381,14 +382,11 @@ class TA_Gradio():
     # print(new_list)
     yield new_list
 
-  
   def gpt3_textbox_visibility(use_gpt3):
     if use_gpt3:
       return gr.update(visible=True)
     else:
       return gr.update(visible=False)
-
-
 
   def main(self,):
     with gr.Blocks() as input_blocks:
@@ -404,8 +402,10 @@ class TA_Gradio():
           context = gr.Textbox(label="(Optional) give a relevant textbook paragraph for specific questions",
                                placeholder="(Optional) we'll use the paragraph to generate an answer to your question.")
           # gr.Markdown("""Try searching for:""")
-          use_gpt3_checkbox = gr.Checkbox(label="Include GPT-3 (paid)?")
-          use_equation_checkbox = gr.Checkbox(label="Include equations?")
+          # top checkboxes
+          with gr.Row():
+            use_gpt3_checkbox = gr.Checkbox(label="Include GPT-3 (paid)?")
+            use_equation_checkbox = gr.Checkbox(label="Prioritize equations?")
           examples = gr.Examples(
               examples=[
                   ["What is a Finite State Machine?"],
@@ -443,7 +443,7 @@ class TA_Gradio():
           best_answer = gr.Textbox(label="Best Answer", wrap=True)  # scroll_to_output=True
           gpt3_answer = gr.Textbox(label="GPT-3 Answer", wrap=True, visible=False)
           print("GPT-3 CHECKBOX:", use_gpt3_checkbox)
-          print("GPT-3 CHECKBOX:", not(use_gpt3_checkbox))
+          print("GPT-3 CHECKBOX:", not (use_gpt3_checkbox))
           use_gpt3_checkbox.change(fn=self.gpt3_textbox_visibility, outputs=[gpt3_answer])
 
       with gr.Row():
@@ -507,7 +507,7 @@ class TA_Gradio():
     # )
     input_blocks.queue(concurrency_count=2)  # limit concurrency
     # input_blocks.launch(share=True)  #, server_port=8888)
-    input_blocks.launch(share=True)  #, server_name='0.0.0.0', server_port=8889)
+    input_blocks.launch(share=True, server_name='0.0.0.0', server_port=8888)
     input_blocks.integrate(wandb=wandb)
 
 

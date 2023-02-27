@@ -12,7 +12,9 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
 
 # for auto-gpu selection
-from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory,
+                              get_free_memory_dict,
+                              get_gpu_ids_with_sufficient_memory)
 
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
@@ -38,7 +40,9 @@ from entity_tracker import entity_tracker
 # for OPT
 from module import *  # import generation model(OPT/T5)
 from PIL import Image
-from transformers import (AutoModelForSequenceClassification, AutoTokenizer, GPT2Tokenizer, OPTForCausalLM, T5ForConditionalGeneration)
+from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
+                          GPT2Tokenizer, OPTForCausalLM,
+                          T5ForConditionalGeneration)
 
 
 class TA_Pipeline:
