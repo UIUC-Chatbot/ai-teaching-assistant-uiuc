@@ -324,18 +324,26 @@ class TA_Gradio():
     history.append((message, final_out))
     return history
 
-  def load_text_answer(self, question, context, use_equation_checkbox):
+  def load_text_answer(self, question, context, use_gpt3, use_equation_checkbox):
     '''
     This function is called when the user clicks the "Generate Answer" button.
     It collects responses and updates the gradio interface iteratively as we get new responses. 
     At the end, it shows a 'main answer' after all answers are generated AND ranked.
     '''
+    # contexts
+    top_context_documents = self.ta.retrieve_contexts_from_pinecone(user_question=question, topk=NUM_ANSWERS_GENERATED)
+    top_context_metadata = [f"Source: page {int(doc.metadata['page_number'])} in {doc.metadata['textbook_name']}" for doc in top_context_documents]
+    top_context_list = [doc.page_content for doc in top_context_documents]
+
+    #print("TOP CONTEXT LIST: ", top_context_list)
+
+
     self.generated_answers_list = []
     self.retrieved_context_list = []
     for i, ans in enumerate(self.ta.yield_text_answer(question, context)):
       # print("IN LOAD TEXT ANSWER")
       i = 2 * i
-      ans_list = [gr.update() for j in range(7)]
+      ans_list = [gr.update() for j in range(8)]
       ans_list[i] = gr.update(value=ans[0])
       ans_list[i + 1] = gr.update(value=ans[1])
 
@@ -344,26 +352,43 @@ class TA_Gradio():
       self.retrieved_context_list.append(ans[1])
       yield ans_list
 
-    # call ranking function here
     final_scores = self.ta.re_ranking_ms_marco(self.generated_answers_list, question)
     # print(final_scores)
 
     results = {
         'Answer': self.generated_answers_list,
         # append page number and textbook name to each context
-        #'Context': [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)],
-        # 'Context': top_context_list,
-        'Score': final_scores,
+        'Context': [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)],
+        'Score': final_scores
     }
 
     generated_results_df = pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
+    
+    new_list = [gr.update() for j in range(8)]
+
+    if use_gpt3:
+      # call gpt3 function
+      print("GPT-3 FLAG CHECK")
+      generated_results_df = self.add_gpt3_response(generated_results_df, question, top_context_list, use_equation_checkbox)
+      # gpt3 answer is the last update
+      new_list[-1] = gr.update(value=str(generated_results_df['Answer'][0]))
 
     generated_results_df = generated_results_df.reset_index()
-    # print("DF: ", generated_results_df)
-    new_list = [gr.update() for j in range(7)]
-    new_list[-1] = gr.update(value=str(generated_results_df['Answer'][0]))
+    print("DF: ", generated_results_df)
+
+    # best answer is the 2nd last update
+    new_list[-2] = gr.update(value=str(generated_results_df['Answer'][0]))
     # print(new_list)
     yield new_list
+
+  
+  def gpt3_textbox_visibility(use_gpt3):
+    if use_gpt3:
+      return gr.update(visible=True)
+    else:
+      return gr.update(visible=False)
+
+
 
   def main(self,):
     with gr.Blocks() as input_blocks:
@@ -416,6 +441,10 @@ class TA_Gradio():
         with gr.Column():
           gr.Markdown("""## Results""")
           best_answer = gr.Textbox(label="Best Answer", wrap=True)  # scroll_to_output=True
+          gpt3_answer = gr.Textbox(label="GPT-3 Answer", wrap=True, visible=False)
+          print("GPT-3 CHECKBOX:", use_gpt3_checkbox)
+          print("GPT-3 CHECKBOX:", not(use_gpt3_checkbox))
+          use_gpt3_checkbox.change(fn=self.gpt3_textbox_visibility, outputs=[gpt3_answer])
 
       with gr.Row():
         with gr.Column():
@@ -456,8 +485,8 @@ class TA_Gradio():
         #                   scroll_to_output=True)
 
         run.click(fn=self.load_text_answer,
-                  inputs=[search_question, context, use_equation_checkbox],
-                  outputs=[generated_answer1, context1, generated_answer2, context2, generated_answer3, context3, best_answer])
+                  inputs=[search_question, context, use_gpt3_checkbox, use_equation_checkbox],
+                  outputs=[generated_answer1, context1, generated_answer2, context2, generated_answer3, context3, best_answer, gpt3_answer])
 
         # with gr.Row():
         #   feedback_radio = gr.Radio(['Like', 'Dislike'], label="Feedback")
@@ -501,7 +530,7 @@ def save_feedback(query, answer1, context1, likes1, custom_answer1, answer2, con
           'custom_answer_3': custom_answer3
       }]
   }
-  # save to csv --> get question and answers here.
+  # save to json --> get question and answers here.
   filepath = "feedback.json"
   if os.path.exists(filepath):
     with open("feedback.json", "r+") as f:
