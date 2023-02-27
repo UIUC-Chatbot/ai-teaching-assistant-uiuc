@@ -106,16 +106,14 @@ class TA_Pipeline:
   ########  Load all our different models ##############################
   ######################################################################
 
-  def yield_text_answer(
-      self,
-      user_question: str = '',
-      user_defined_context: str = '',
-  ):
+  def yield_text_answer(self, user_question: str = '', user_defined_context: str = ''):
+    '''
+    This is called by the Gradio app to yeild completions. Right now it only calls T5, would be best to have OPT, too.
+    '''
     if user_defined_context:
       top_context_list = [user_defined_context * self.num_answers_generated]
     else:
-      top_context_documents = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
-      top_context_list = [doc.page_content for doc in top_context_documents]
+      top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
     yield self.run_t5_completion(user_question=user_question,
                                  top_context_list=top_context_list,
@@ -182,26 +180,6 @@ class TA_Pipeline:
     self.pipeline = pipeline('document-question-answering')
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc.
     self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
-
-  def yield_text_answer(
-      self,
-      user_question: str = '',
-      user_defined_context: str = '',
-  ):
-    '''
-    This is called by the Gradio app to yeild completions. Right now it only calls T5, would be best to have OPT, too.
-    '''
-    if user_defined_context:
-      top_context_list = [user_defined_context * self.num_answers_generated]
-    else:
-      top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
-
-    for i, ans in enumerate(
-        self.run_t5_completion(user_question=user_question,
-                               top_context_list=top_context_list,
-                               num_answers_generated=self.num_answers_generated,
-                               print_answers_to_stdout=False)):
-      yield ans, top_context_list[i]
 
   def _load_t5(self):
     self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xxl")
