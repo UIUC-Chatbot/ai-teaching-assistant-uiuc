@@ -26,8 +26,7 @@ from PIL import Image
 
 import main
 import wandb
-from gpu_memory_utils import (get_device_with_most_free_memory,
-                              get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 

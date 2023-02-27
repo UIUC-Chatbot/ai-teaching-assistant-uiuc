@@ -194,8 +194,7 @@ class TA_Pipeline:
     if user_defined_context:
       top_context_list = [user_defined_context * self.num_answers_generated]
     else:
-      top_context_documents = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
-      top_context_list = [doc.page_content for doc in top_context_documents]
+      top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
     for i, ans in enumerate(
         self.run_t5_completion(user_question=user_question,
@@ -314,7 +313,15 @@ class TA_Pipeline:
     '''
     if topk is None:
       topk = self.num_answers_generated
-    relevant_context_list = self.vectorstore.similarity_search(user_question, k=topk)
+
+    # similarity search
+    top_context_list = self.vectorstore.similarity_search(user_question, k=topk)
+
+    # add the source info to the bottom of the context.
+    top_context_metadata = [
+        f"Source: page {int(doc.metadata['page_number'])} in {doc.metadata['textbook_name']}" for doc in top_context_list
+    ]
+    relevant_context_list = [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
     return relevant_context_list
 
   def retrieve(self, user_question: str, topk: int = None):
@@ -358,10 +365,6 @@ class TA_Pipeline:
     assert num_answers_generated == len(top_context_list)
     max_text_length = 256
     response_list = self.opt_model.answer_question_all(top_context_list, user_question, num_answers_generated, max_text_length)
-    # for i in range(num_answers_generated):
-    #     opt_answer = self.opt_model.answer_question(
-    #         top_context_list[i], user_question, MAX_TEXT_LENGTH)
-    #     response_list.append(opt_answer)
 
     if print_answers_to_stdout:
       print("Generated Answers:")
