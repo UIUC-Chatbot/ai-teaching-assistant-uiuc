@@ -7,11 +7,11 @@ from typing import Any, Dict, List
 import pinecone  # cloud-hosted vector database for context retrieval
 from langchain.vectorstores import Pinecone
 from langchain.embeddings import HuggingFaceEmbeddings
-
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
+import prompting
 
 # set environment variable huggingface cache path to ~/
 # os.environ['TRANSFORMERS_CACHE'] = '/home/kastanday/project'
@@ -37,6 +37,7 @@ from PIL import Image
 # for OPT
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer, T5ForConditionalGeneration, GPT2Tokenizer,
                           OPTForCausalLM)
+
 
 # question re-writing done, but we should use DST
 # add re-ranker
@@ -106,6 +107,7 @@ class TA_Pipeline:
         self.user_question = USER_QUESTION
         # self.num_answers_generated = NUM_ANSWERS_GENERATED
         self.max_text_length = MAX_TEXT_LENGTH
+        self.prompter = prompting.Prompt_LLMs()
 
     ######################################################################
     ########  Load all our different models ##############################
@@ -181,19 +183,32 @@ class TA_Pipeline:
                                                                    device_map="auto",
                                                                    torch_dtype=torch.bfloat16,
                                                                    max_memory={
-                                                                       0: "29GiB",
-                                                                       1: "29GiB",
-                                                                       2: "2GiB",
-                                                                       3: "16GiB"
+                                                                       0: "20GiB",
+                                                                       1: "20GiB",
+                                                                       2: "20GiB",
+                                                                       3: "10GiB"
                                                                    })
         # self.t5_model = torch.compile(self.t5_model) # no real speedup :(
+
+    def t5(self, text):
+         # todo: tune the correct cuda device number.
+        inputs = self.t5_tokenizer(text, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
+        outputs = self.t5_model.generate(**inputs,
+                                            max_new_tokens=256,
+                                            num_beams=3,
+                                            early_stopping=True,
+                                            temperature=1.5,
+                                            repetition_penalty=2.5)
+        single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+        return single_answer
+        
 
     def run_t5_completion(self,
                           user_question: str = USER_QUESTION,
                           top_context_list: List = None,
                           num_answers_generated: int = NUM_ANSWERS_GENERATED,
                           print_answers_to_stdout: bool = False):
-        """ Run T5 generator """
+        """ Run T5 generator - without few shot prompting """
         start_time = time.monotonic()
 
         response_list = []
@@ -202,16 +217,7 @@ class TA_Pipeline:
         for i in range(num_answers_generated):
             inner_time = time.monotonic()
             PROMPT = f"Task: Open book QA. Question: {user_question} Context: {top_context_list[i]}. Answer:"
-
-            # todo: tune the correct cuda device number.
-            inputs = self.t5_tokenizer(PROMPT, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
-            outputs = self.t5_model.generate(**inputs,
-                                             max_new_tokens=256,
-                                             num_beams=3,
-                                             early_stopping=True,
-                                             temperature=1.5,
-                                             repetition_penalty=2.5)
-            single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+            single_answer = self.t5(PROMPT)
             response_list.append(single_answer)
             if print_answers_to_stdout:
                 # print("Single answer:", single_answer)
@@ -223,17 +229,39 @@ class TA_Pipeline:
             print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
         return response_list
 
+    def T5_fewshot(self, user_question: str = USER_QUESTION, top_context_list: List = None, num_answers_generated: int = NUM_ANSWERS_GENERATED, print_answers_to_stdout: bool = False):
+        """ Run T5 generator -few shot prompting """
+        response_list = []
+        assert num_answers_generated == len(
+            top_context_list), "There must be a unique context for each generated answer. "
+        for i in range(num_answers_generated):
+            examples = """
+            Task: Open book QA. Question: How do I check for overflow in a 2's complement operation. Answer: Overflow can be indicated in a 2's complement if the result has the wrong sign, such as if 2 positive numbers sum to a negative number or if 2 negative numbers sum to positive numbers.
+            Task: Open book QA. Question: What is the order of precedence in C programming? Answer: PEMDAS (Parenthesis, Exponents, Multiplication, Division, Addition, Subtraction)
+            Task: Open book QA. Question: Why would I use a constructive construct in C? Answer: A conditional construct would be used in C when you want a section of code to make decisions about what to execute based on certain conditions specified by you in the code. 
+            """
+            new_shot = examples + "Task: Open book QA. Question: %s \nContext : %s \nAnswer : " % (user_question, top_context_list[i])
+            single_answer = self.t5(new_shot)
+            response_list.append(single_answer)
+        return response_list
+
     def gpt3_completion(self,
                         question,
                         context,
+                        equation:bool = False, cot:bool = False,
                         model='text-davinci-003',
                         temp=0.7,
                         top_p=1.0,
                         tokens=1000,
-                        freq_pen=0.0,
+                        freq_pen=1.0,
                         pres_pen=0.0) -> str:
-
-        prompt = self.prepare_prompt(question, context)
+        """ run gpt-3 for SOTA comparision, without few-shot prompting
+        question : user_question 
+        context : retrieved context
+        [OPTIONAL] : equation flag to include equations
+        [OPTIONAL] : chain-of-thought triggered by "Let's think step by step."
+        """
+        prompt = self.prompter.prepare_prompt(question, context, equation, cot)
         max_retry = 5
         retry = 0
         prompt = prompt.encode(encoding='utf-8', errors='ignore').decode()  # force it to fix any unicode errors

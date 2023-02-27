@@ -25,6 +25,7 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
+import prompting
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -64,6 +65,7 @@ class TA_Gradio():
             device_index = [0,3],
             n_stream = 2
             )  
+        self.prompter = prompting.Prompt_LLMs()
         # accelerate OPT model (optimized model with multiple instances, parallel execution): 
         # ct2_path = "../data/models/opt_acc/opt_1.3b_fp16",
         # is_server = True,
@@ -153,7 +155,7 @@ class TA_Gradio():
         with open('/home/zhiweny2/chatbotai/jerome/human_data_review/new_eval_set.json', 'w', encoding='utf-8') as f:
             json.dump(updated_eval_set, f, ensure_ascii=False, indent=4) 
     
-    def question_answer(self, question: str, user_defined_context: str = '', use_gpt3: bool = False, image=None):
+    def question_answer(self, question: str, user_defined_context: str = '', use_gpt3: bool = False, image=None, use_equation_checkbox:bool = False):
         """
         This is the function called with the user clicks the main "Search 🔍" button.
         You can call this from anywhere to run our main program.
@@ -162,6 +164,7 @@ class TA_Gradio():
         [OPTIONAL] user_defined_context: user-supplied context to make the answer more specific. Usually it's empty, so we AI retrieve a context.
         [OPTIONAL] use_gpt3: Run GPT-3 answer-generation if True, default is False. The True/False value of the checkbox in the UI to "Use GPT3 (paid)". 
         [OPTIONAL] image: User-supplied image, for reverse image search.
+        [OPTIONAL] use_equations : To include equations in the answer
         """
         start_time = time.monotonic()
         # we generate many answers, then filter it down to the best scoring ones (w/ msmarco).
@@ -271,18 +274,35 @@ class TA_Gradio():
         # log a new table for each time our app is used. Can't figure out how to append to them easily.
         wandb.log({make_inference_id('Inference_made'): results_table})
 
-    def add_gpt3_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str]) -> pd.DataFrame:
+    def add_gpt3_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str], use_equation_checkbox:bool=False) -> pd.DataFrame:
         """
         GPT3 for comparison to SOTA.
         This answer is ALWAYS shown to the user, no matter the score. It is not subject to score filtering like the other generations are.
+        Change use_equation_checkbox = True to display equations
         """
-        generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0])
-
+        generated_prompt = self.prompter.prepare_prompt(user_question, top_context_list[0], use_equation_checkbox)
+        generated_answer  = "GPT-3 response:\n" + self.prompter.GPT3_response_API(generated_prompt)
         score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
 
         gpt3_result = {
             'Answer': [generated_answer],
             'Context': [top_context_list[0]],
+            'Score': score,  # score is already a list
+        }
+        df_to_append = pd.DataFrame(gpt3_result)
+        return pd.concat([df_to_append, results_df], ignore_index=True)
+
+    def add_gpt3_fewshot_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str]) -> pd.DataFrame:
+        """
+        GPT3 few shot for comparison to SOTA.
+        Note : few shot doesn't use context.
+        This answer is ALWAYS shown to the user, no matter the score. It is not subject to score filtering like the other generations are.
+        """
+        generated_answer = "GPT-3 few-shot response:\n" + self.prompter.GPT3_fewshot(user_question)
+        score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
+        gpt3_result = {
+            'Answer': [generated_answer],
+            'Context': [top_context_list[0]], #context is not used in few shot answer generation
             'Score': score,  # score is already a list
         }
         df_to_append = pd.DataFrame(gpt3_result)
@@ -319,6 +339,7 @@ class TA_Gradio():
                         placeholder="(Optional) we'll use the paragraph to generate an answer to your question.")
                     # gr.Markdown("""Try searching for:""")
                     use_gpt3_checkbox = gr.Checkbox(label="Include GPT-3 (paid)?")
+                    use_equation_checkbox = gr.Checkbox(label="Include relevant equations?")
                     examples = gr.Examples(
                         examples=[
                             ["What is a Finite State Machine?"],
@@ -345,7 +366,7 @@ class TA_Gradio():
                 gr.Markdown("""## Results""")
 
             event = run.click(fn=self.question_answer,
-                              inputs=[search_question, context, use_gpt3_checkbox, image],
+                              inputs=[search_question, context, use_gpt3_checkbox, image, use_equation_checkbox],
                               outputs=[
                                   gr.Dataframe(
                                       headers=["Answer", "Score", "Context", "Metadata"],
