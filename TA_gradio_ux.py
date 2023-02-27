@@ -286,7 +286,6 @@ class TA_Gradio():
       It is scored by the ranker, but it is not subject to filtering like the other generations are.
       """
     generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
-
     score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
 
     gpt3_result = {

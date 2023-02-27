@@ -110,7 +110,11 @@ class TA_Pipeline:
   ########  Load all our different models ##############################
   ######################################################################
 
-  def yield_text_answer(self, user_question: str = '', user_defined_context: str = ''):
+  def yield_text_answer(
+      self,
+      user_question: str = '',
+      user_defined_context: str = '',
+  ):
     '''
     This is called by the Gradio app to yeild completions. Right now it only calls T5, would be best to have OPT, too.
     '''
@@ -119,16 +123,28 @@ class TA_Pipeline:
     else:
       top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
-    yield self.run_t5_completion(user_question=user_question,
-                                 top_context_list=top_context_list,
-                                 num_answers_generated=self.num_answers_generated,
-                                 print_answers_to_stdout=False)
+    for i, ans in enumerate(
+        self.run_t5_completion(user_question=user_question,
+                               top_context_list=top_context_list,
+                               num_answers_generated=self.num_answers_generated,
+                               print_answers_to_stdout=False)):
+      yield ans, top_context_list[i]
+
+  # def yield_text_answer(
+  #   self,
+  #   user_question: str = '',
+  #   user_defined_context: str = ''):
+
+  # if user_defined_context:
+  #   top_context_list = [user_defined_context * self.num_answers_generated]
+  # else:
+  #   top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
   def load_modules(self):
-    self._load_opt()
+    # self._load_opt()
+    # self._load_et()
     self._load_reranking_ms_marco()
     self._load_contriever()
-    self._load_et()
     self._load_t5()
     self._load_pinecone_vectorstore()
     # TODO: install doc-query dependencies
@@ -151,13 +167,6 @@ class TA_Pipeline:
 
   def _load_opt(self):
     """ Load OPT model """
-
-    # todo: is this the right way to instantiate this model?
-    # single instance
-    # self.opt_model = opt_model(
-    #     "facebook/opt-1.3b",
-    #     device=self.device)
-
     # multiple instances
     self.opt_model = opt_model("facebook/opt-1.3b",
                                ct2_path=self.ct2_path,
