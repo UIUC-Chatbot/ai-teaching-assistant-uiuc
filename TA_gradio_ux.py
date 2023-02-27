@@ -283,10 +283,10 @@ class TA_Gradio():
 
   def add_gpt3_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str]) -> pd.DataFrame:
     """
-      GPT3 for comparison to SOTA.
-      This answer is ALWAYS shown to the user, no matter the score. It's the first element in the dataframe. 
-      It is scored by the ranker, but it is not subject to filtering like the other generations are.
-      """
+    GPT3 for comparison to SOTA.
+    This answer is ALWAYS shown to the user, no matter the score. It's the first element in the dataframe. 
+    It is scored by the ranker, but it is not subject to filtering like the other generations are.
+    """
     generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0])
 
     score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
