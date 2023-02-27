@@ -130,11 +130,13 @@ class TA_Pipeline:
       top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
     for i, ans in enumerate(
-        self.run_t5_completion(user_question=user_question,
+      self.run_t5_completion(user_question=user_question,
                                top_context_list=top_context_list,
                                num_answers_generated=self.num_answers_generated,
                                print_answers_to_stdout=False)):
       yield ans, top_context_list[i]
+
+    
 
   # def yield_text_answer(
   #   self,
