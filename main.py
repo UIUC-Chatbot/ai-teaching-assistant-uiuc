@@ -10,9 +10,7 @@ import ray
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
 
-from gpu_memory_utils import (get_device_with_most_free_memory,
-                              get_free_memory_dict,
-                              get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
@@ -37,9 +35,7 @@ from entity_tracker import entity_tracker
 # for OPT
 from module import *  # import generation model(OPT/T5)
 from PIL import Image
-from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
-                          GPT2Tokenizer, OPTForCausalLM,
-                          T5ForConditionalGeneration)
+from transformers import (AutoModelForSequenceClassification, AutoTokenizer, GPT2Tokenizer, OPTForCausalLM, T5ForConditionalGeneration)
 
 
 class TA_Pipeline:
@@ -54,11 +50,14 @@ class TA_Pipeline:
                use_clip=False):
 
     # init parameters
-    self.device = device
-    self.opt_weight_path = opt_weight_path
-    self.num_answers_generated = 5
     self.user_question = ''
     self.max_text_length = None
+    self.pinecone_index_name = 'uiuc-chatbot'  # uiuc-chatbot-v2
+
+    # init parameters
+    self.device = device
+    self.opt_weight_path = opt_weight_path
+    self.num_answers_generated = 3
 
     # OPT acceleration
     self.trt_path = trt_path
@@ -67,21 +66,14 @@ class TA_Pipeline:
     self.device_index = device_index_list
     self.n_stream = len(device_index_list)
 
-    self.LECTURE_SLIDES_DIR = os.path.join(os.getcwd(), "lecture_slides")
-
-    # Retriever model: contriever
-    self.contriever = None
-    # Generation model: OPT & T5
-    self.opt_model = None
-    self.t5_model = None
-    self.t5_tokenizer = None
-
     # Reranker
-    # Switch jkmin3 and josh to desired name for other name
-    # self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('/home/jkmin3/chatbotai/josh/data-generator/ranking_models/fine_tuning_MSmarco/final')
-    # self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('/home/jkmin3/chatbotai/josh/data-generator/ranking_models/fine_tuning_MSmarco/final')
     self.rerank_msmarco_model = None
     self.rerank_msmarco_tokenizer = None
+    self.rerank_msmarco_device = None
+    # josh's version of this model
+    # self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('/home/jkmin3/chatbotai/josh/data-generator/ranking_models/fine_tuning_MSmarco/final')
+    # self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('/home/jkmin3/chatbotai/josh/data-generator/ranking_models/fine_tuning_MSmarco/final')
+
     # DocQuery pipeline
     self.pipeline = None
     self.doc = None
@@ -90,13 +82,25 @@ class TA_Pipeline:
     # Pinecone vector store (for relevant contexts)
     self.vectorstore = None
     # Clip for image search
+    self.LECTURE_SLIDES_DIR = os.path.join(os.getcwd(), "lecture_slides")
+    if use_clip:
+      self.clip_search_class = None
+      self._load_clip()
+
+    # Retriever model: contriever
+    self.contriever = None
+    # Generation model: OPT & T5
+    self.opt_model = None
+    self.t5_model = None
+    self.t5_tokenizer = None
+
+    # Clip for image search
     if use_clip:
       self.clip_search_class = None
       self._load_clip()
 
     # Load everything into cuda memory
     self.load_modules()
-
 
   ######################################################################
   ########  Load all our different models ##############################
@@ -112,8 +116,6 @@ class TA_Pipeline:
     else:
       top_context_documents = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
       top_context_list = [doc.page_content for doc in top_context_documents]
-    
-    
 
     yield self.run_t5_completion(user_question=user_question,
                                  top_context_list=top_context_list,
@@ -166,7 +168,13 @@ class TA_Pipeline:
       self.opt_model.load_checkpoint(self.opt_weight_path)
 
   def _load_reranking_ms_marco(self):
-    self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2').to(self.device)
+    '''
+    The fine-tuned ranking model from Josh: 
+    AutoModelForSequenceClassification.from_pretrained('../data-generator/ranking_models/fine_tuning_MSmarco/cross-encoder-ms-marco-MiniLM-L-6-v2-2022-11-27_00-59-17').to(get_device_with_most_free_memory())
+    '''
+    self.rerank_msmarco_device = get_device_with_most_free_memory()
+    self.rerank_msmarco_model = AutoModelForSequenceClassification.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2').to(
+        self.rerank_msmarco_device)
     self.rerank_msmarco_tokenizer = AutoTokenizer.from_pretrained('cross-encoder/ms-marco-MiniLM-L-6-v2')
     self.rerank_msmarco_model.eval()
 
@@ -175,9 +183,26 @@ class TA_Pipeline:
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc.
     self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
 
-  ######################################################################
-  ########  Start completion generators ################################
-  ######################################################################
+  def yield_text_answer(
+      self,
+      user_question: str = '',
+      user_defined_context: str = '',
+  ):
+    '''
+    This is called by the Gradio app to yeild completions. Right now it only calls T5, would be best to have OPT, too.
+    '''
+    if user_defined_context:
+      top_context_list = [user_defined_context * self.num_answers_generated]
+    else:
+      top_context_documents = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
+      top_context_list = [doc.page_content for doc in top_context_documents]
+
+    for i, ans in enumerate(
+        self.run_t5_completion(user_question=user_question,
+                               top_context_list=top_context_list,
+                               num_answers_generated=self.num_answers_generated,
+                               print_answers_to_stdout=False)):
+      yield ans, top_context_list[i]
 
   def _load_t5(self):
     self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xxl")
@@ -198,7 +223,7 @@ class TA_Pipeline:
                         print_answers_to_stdout: bool = False):
     """ Run T5 generator """
     start_time = time.monotonic()
-    
+
     if num_answers_generated is None:
       num_answers_generated = self.num_answers_generated
 
@@ -277,9 +302,9 @@ class TA_Pipeline:
 
   def _load_pinecone_vectorstore(self,):
     model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
+    pincecone_index = pinecone.Index("uiuc-chatbot")
     embeddings = HuggingFaceEmbeddings(model_name=model_name)
     pinecone.init(api_key=os.environ['PINECONE_API_KEY'], environment="us-west1-gcp")
-    pincecone_index = pinecone.Index("uiuc-chatbot")
     self.vectorstore = Pinecone(index=pincecone_index, embedding_function=embeddings.embed_query, text_key="text")
 
   def retrieve_contexts_from_pinecone(self, user_question: str, topk: int = None) -> List[Any]:
@@ -325,10 +350,10 @@ class TA_Pipeline:
           num_answers_generated: int = None,
           print_answers_to_stdout: bool = True):
     """ Run OPT """
-    
+
     if num_answers_generated is None:
       num_answers_generated = self.num_answers_generated
-      
+
     response_list = []
     assert num_answers_generated == len(top_context_list)
     max_text_length = 256
@@ -367,7 +392,7 @@ class TA_Pipeline:
                                              response_list,
                                              padding=True,
                                              truncation=True,
-                                             return_tensors="pt").to(self.device)
+                                             return_tensors="pt").to(self.rerank_msmarco_device)
     with torch.no_grad():
       scores = self.rerank_msmarco_model(**features).logits.cpu()
 
