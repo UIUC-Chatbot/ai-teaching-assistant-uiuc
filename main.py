@@ -12,9 +12,7 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
 
 # for auto-gpu selection
-from gpu_memory_utils import (get_device_with_most_free_memory,
-                              get_free_memory_dict,
-                              get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
@@ -40,9 +38,7 @@ from entity_tracker import entity_tracker
 # for OPT
 from module import *  # import generation model(OPT/T5)
 from PIL import Image
-from transformers import (AutoModelForSequenceClassification, AutoTokenizer,
-                          GPT2Tokenizer, OPTForCausalLM,
-                          T5ForConditionalGeneration)
+from transformers import (AutoModelForSequenceClassification, AutoTokenizer, GPT2Tokenizer, OPTForCausalLM, T5ForConditionalGeneration)
 
 
 class TA_Pipeline:
@@ -130,13 +126,11 @@ class TA_Pipeline:
       top_context_list = self.retrieve_contexts_from_pinecone(user_question=user_question, topk=self.num_answers_generated)
 
     for i, ans in enumerate(
-      self.run_t5_completion(user_question=user_question,
+        self.run_t5_completion(user_question=user_question,
                                top_context_list=top_context_list,
                                num_answers_generated=self.num_answers_generated,
                                print_answers_to_stdout=False)):
       yield ans, top_context_list[i]
-
-    
 
   # def yield_text_answer(
   #   self,
@@ -214,73 +208,76 @@ class TA_Pipeline:
     #max_memory=get_free_memory_dict())
     # self.t5_model = torch.compile(self.t5_model) # no real speedup :(
   def t5(self, text):
-      # todo: tune the correct cuda device number.
-      inputs = self.t5_tokenizer(text, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
-      outputs = self.t5_model.generate(**inputs,
-                                          max_new_tokens=256,
-                                          num_beams=3,
-                                          early_stopping=True,
-                                          temperature=1.5,
-                                          repetition_penalty=2.5)
-      single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-      return single_answer
-      
-  def T5_fewshot(self, user_question: str , top_context_list: List = None, num_answers_generated: int = None, print_answers_to_stdout: bool = False):
-      """ Run T5 generator -few shot prompting """
-      if num_answers_generated is None:
-        num_answers_generated= self.num_answers_generated
-      response_list = []
-      assert num_answers_generated == len(
-          top_context_list), "There must be a unique context for each generated answer. "
-      for i in range(num_answers_generated):
-          examples = """
+    # todo: tune the correct cuda device number.
+    inputs = self.t5_tokenizer(text, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
+    outputs = self.t5_model.generate(**inputs,
+                                     max_new_tokens=256,
+                                     num_beams=3,
+                                     early_stopping=True,
+                                     temperature=1.5,
+                                     repetition_penalty=2.5)
+    single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+    return single_answer
+
+  def T5_fewshot(self,
+                 user_question: str,
+                 top_context_list: List = None,
+                 num_answers_generated: int = None,
+                 print_answers_to_stdout: bool = False):
+    """ Run T5 generator -few shot prompting """
+    if num_answers_generated is None:
+      num_answers_generated = self.num_answers_generated
+    response_list = []
+    assert num_answers_generated == len(top_context_list), "There must be a unique context for each generated answer. "
+    for i in range(num_answers_generated):
+      examples = """
           Task: Open book QA. Question: How do I check for overflow in a 2's complement operation. Answer: Overflow can be indicated in a 2's complement if the result has the wrong sign, such as if 2 positive numbers sum to a negative number or if 2 negative numbers sum to positive numbers.
           Task: Open book QA. Question: What is the order of precedence in C programming? Answer: PEMDAS (Parenthesis, Exponents, Multiplication, Division, Addition, Subtraction)
           Task: Open book QA. Question: Why would I use a constructive construct in C? Answer: A conditional construct would be used in C when you want a section of code to make decisions about what to execute based on certain conditions specified by you in the code. 
           """
-          new_shot = examples + "Task: Open book QA. Question: %s \nContext : %s \nAnswer : " % (user_question, top_context_list[i])
-          single_answer = self.t5(new_shot)
-          response_list.append(single_answer)
-      return response_list
+      new_shot = examples + "Task: Open book QA. Question: %s \nContext : %s \nAnswer : " % (user_question, top_context_list[i])
+      single_answer = self.t5(new_shot)
+      response_list.append(single_answer)
+    return response_list
 
   def gpt3_completion(self,
                       question,
                       context,
-                      equation:bool = False, cot:bool = False,
+                      equation: bool = False,
+                      cot: bool = False,
                       model='text-davinci-003',
                       temp=0.7,
                       top_p=1.0,
                       tokens=1000,
                       freq_pen=1.0,
                       pres_pen=0.0) -> str:
-      """ run gpt-3 for SOTA comparision, without few-shot prompting
+    """ run gpt-3 for SOTA comparision, without few-shot prompting
       question : user_question 
       context : retrieved context
       [OPTIONAL] : equation flag to include equations
       [OPTIONAL] : chain-of-thought triggered by "Let's think step by step."
       """
-      prompt = self.prompter.prepare_prompt(question, context, equation, cot)
-      max_retry = 5
-      retry = 0
-      prompt = prompt.encode(encoding='utf-8', errors='ignore').decode()  # force it to fix any unicode errors
-      while True:
-          try:
-              response = openai.Completion.create(model=model,
-                                                  prompt=prompt,
-                                                  temperature=temp,
-                                                  max_tokens=tokens,
-                                                  top_p=top_p,
-                                                  frequency_penalty=freq_pen,
-                                                  presence_penalty=pres_pen)
-              text = response['choices'][0]['text'].strip()
-              return text
-          except Exception as oops:
-              retry += 1
-              if retry >= max_retry:
-                  return "GPT3 error: %s" % oops
-              print('Error communicating with OpenAI:', oops)
-              # todo: log to wandb.
-
+    prompt = self.prompter.prepare_prompt(question, context, equation, cot)
+    max_retry = 5
+    retry = 0
+    prompt = prompt.encode(encoding='utf-8', errors='ignore').decode()  # force it to fix any unicode errors
+    while True:
+      try:
+        response = openai.Completion.create(model=model,
+                                            prompt=prompt,
+                                            temperature=temp,
+                                            max_tokens=tokens,
+                                            top_p=top_p,
+                                            frequency_penalty=freq_pen,
+                                            presence_penalty=pres_pen)
+        text = response['choices'][0]['text'].strip()
+        return text
+      except Exception as oops:
+        retry += 1
+        if retry >= max_retry:
+          return "GPT3 error: %s" % oops
+        print('Error communicating with OpenAI:', oops)
+        # todo: log to wandb.
 
   def run_t5_completion(self,
                         user_question: str = '',
@@ -312,7 +309,6 @@ class TA_Pipeline:
       print("Generated Answers:")
       print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
     # return response_list
-
 
   def et_main(self, user_utter):
     qr_user_utter, topic, history = self.et.main(user_utter)
@@ -347,7 +343,7 @@ class TA_Pipeline:
     top_context_metadata = [
         f"Source: page {int(doc.metadata['page_number'])} in {doc.metadata['textbook_name']}" for doc in top_context_list
     ]
-    relevant_context_list = [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
+    relevant_context_list = [f"{text.page_content}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
     return relevant_context_list
 
   def retrieve(self, user_question: str, topk: int = None):
@@ -449,4 +445,3 @@ class TA_Pipeline:
     print("Final image path: ", img_path_list)
 
     return img_path_list
-

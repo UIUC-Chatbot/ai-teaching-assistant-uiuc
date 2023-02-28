@@ -346,7 +346,6 @@ class TA_Gradio():
     clear_list = [gr.update(value=None) for j in range(8)]
     yield clear_list
 
-
     for i, ans in enumerate(self.ta.yield_text_answer(question, context)):
       # print("IN LOAD TEXT ANSWER")
       i = 2 * i
@@ -387,7 +386,6 @@ class TA_Gradio():
     new_list[-2] = gr.update(value=str(generated_results_df['Answer'][0]))
     # print(new_list)
     yield new_list
-
 
   def gpt3_textbox_visibility(use_gpt3):
     if use_gpt3:
@@ -492,7 +490,6 @@ class TA_Gradio():
         #                   outputs=[generated_answer, lec_gallery],
         #                   scroll_to_output=True)
 
-        
         run.click(fn=self.load_text_answer,
                   inputs=[search_question, context, use_gpt3_checkbox, use_equation_checkbox],
                   outputs=[generated_answer1, context1, generated_answer2, context2, generated_answer3, context3, best_answer, gpt3_answer])
@@ -515,8 +512,8 @@ class TA_Gradio():
     #     allow_flagging="never",
     # )
     input_blocks.queue(concurrency_count=2)  # limit concurrency
-    input_blocks.launch(share=True)  #, server_port=8888)
-    #input_blocks.launch(share=True, server_name='0.0.0.0', server_port=8888)
+    # input_blocks.launch(share=True)  #, server_port=8888)
+    input_blocks.launch(share=True, server_name='0.0.0.0', server_port=8888)
     input_blocks.integrate(wandb=wandb)
 
 
@@ -550,11 +547,10 @@ def save_feedback(query, answer1, context1, likes1, custom_answer1, answer2, con
   else:
     with open("feedback.json", "w") as f:
       json.dump(new_data, f)
-  
+
   # clear the feedback components
   clear_list = [gr.update(value=None) for i in range(6)]
   return clear_list
-  
 
 
 # def save_feedback(query, answer1, context1, likes1, custom_answer1, answer2, context2, likes2, custom_answer2, answer3, context3, likes3,
