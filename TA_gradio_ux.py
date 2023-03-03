@@ -21,8 +21,7 @@ import pandas as pd
 import prompting
 import torch
 import wandb
-from gpu_memory_utils import (get_device_with_most_free_memory,
-                              get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
@@ -218,7 +217,8 @@ class TA_Gradio():
     # num_returns = 9 = 3 answers + 3 contexts + Gpt3 answer + final ranked answer + CLIP retrieval image list.
     NUM_RETURNS = 9
     # clear the previous answers if present
-    clear_list = [gr.update(value=None) for j in range(NUM_RETURNS)]
+    clear_list = [gr.update() for _ in range(NUM_RETURNS)]
+    clear_list[-1] = []  # CLIP image list
     yield clear_list
 
     # contexts
@@ -229,6 +229,8 @@ class TA_Gradio():
     for i, ans in enumerate(self.ta.yield_text_answer(question, context)):
       i = 2 * i
       ans_list = [gr.update() for _ in range(NUM_RETURNS)]
+      ans_list[-1] = []  # CLIP image list
+
       ans_list[i] = gr.update(value=ans[0])
       ans_list[i + 1] = gr.update(value=ans[1])
       self.generated_answers_list.append(ans[0])
@@ -246,24 +248,24 @@ class TA_Gradio():
     print("RESULTS", results)
 
     # RUN CLIP -- todo, run right after GPT-3.
-    new_list = [gr.update() for _ in range(NUM_RETURNS)]
-    retrieved_images = self.run_clip(question)
-    new_list[-1] = retrieved_images
-    yield new_list
+    ans_list = [gr.update() for _ in range(NUM_RETURNS)]
+    ans_list[-1] = self.run_clip(question)  # retrieved_images
+    yield ans_list
 
     # this is causing errors. All arrays must be of the same length.
     generated_results_df = pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
-    new_list = [gr.update() for _ in range(NUM_RETURNS)]
+    ans_list = [gr.update() for _ in range(NUM_RETURNS)]
+    ans_list[-1] = []  # CLIP image list
     # todo: run this BEFORE the main answer generation loop. Then run CLIP next.
     if use_gpt3:
       generated_results_df = self.add_gpt3_response(generated_results_df, question, top_context_list, use_equation_checkbox)
       # gpt3 answer is the last update
-      new_list[-1] = gr.update(value=str(generated_results_df['Answer'][0]))
+      ans_list[-2] = gr.update(value=str(generated_results_df['Answer'][0]))
 
     # best answer is the 2nd last update
     generated_results_df = generated_results_df.reset_index()
-    new_list[-2] = gr.update(value=str(generated_results_df['Answer'][0]))
-    yield new_list
+    ans_list[-3] = gr.update(value=str(generated_results_df['Answer'][0]))
+    yield ans_list
 
   def gpt3_textbox_visibility(use_gpt3):
     if use_gpt3:
