@@ -7,12 +7,11 @@ import time
 from typing import Any, Dict, List
 
 import pinecone  # cloud-hosted vector database for context retrieval
+# for auto-gpu selection
+from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 # for vector search
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
-
-# for auto-gpu selection
-from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
@@ -38,6 +37,7 @@ from entity_tracker import entity_tracker
 # for OPT
 from module import *  # import generation model(OPT/T5)
 from PIL import Image
+
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer, GPT2Tokenizer, OPTForCausalLM, T5ForConditionalGeneration)
 
 
@@ -86,6 +86,7 @@ class TA_Pipeline:
     self.vectorstore = None
     # Clip for image search
     self.LECTURE_SLIDES_DIR = os.path.join(os.getcwd(), "lecture_slides")
+    # todo: assert lecture slides dir contains 1836 images.
     if use_clip:
       self.clip_search_class = None
       self._load_clip()
@@ -99,11 +100,6 @@ class TA_Pipeline:
 
     #prompting
     self.prompter = prompting.Prompt_LLMs()
-
-    # Clip for image search
-    if use_clip:
-      self.clip_search_class = None
-      self._load_clip()
 
     # Load everything into cuda memory
     self.load_modules()
@@ -153,13 +149,10 @@ class TA_Pipeline:
     # self._load_doc_query()
 
   def _load_clip(self):
-    print("initing clip model...")
-    print("Todo: think more carefully about which device to use.")
-
     self.clip_search_class = ClipImage(path_of_ppt_folders=self.LECTURE_SLIDES_DIR,
                                        path_to_save_image_features=os.getcwd(),
                                        mode='text',
-                                       device='cuda:1')
+                                       device=f'cuda:{get_device_with_most_free_memory()}')
 
   def _load_contriever(self):
     self.contriever = contriever.contriever_final.ContrieverCB()
@@ -340,9 +333,7 @@ class TA_Pipeline:
     top_context_list = self.vectorstore.similarity_search(user_question, k=topk)
 
     # add the source info to the bottom of the context.
-    top_context_metadata = [
-        f"Source: page {int(doc.metadata['page_number'])} in {doc.metadata['textbook_name']}" for doc in top_context_list
-    ]
+    top_context_metadata = [f"Source: page {doc.metadata['page_number']} in {doc.metadata['textbook_name']}" for doc in top_context_list]
     relevant_context_list = [f"{text.page_content}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
     return relevant_context_list
 
@@ -433,7 +424,7 @@ class TA_Pipeline:
     # todo: this has page numbers, that's nice.
     return answer[0]['answer']
 
-  def clip(self, search_question: str, num_images_returned: int = 3):
+  def clip(self, search_question: str, num_images_returned: int = 4):
     """ Run CLIP. 
     Returns a list of images in all cases. 
     """
@@ -441,6 +432,7 @@ class TA_Pipeline:
 
     img_path_list = []
     for img in imgs:
+      print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
       img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
     print("Final image path: ", img_path_list)
 

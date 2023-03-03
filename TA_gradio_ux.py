@@ -15,17 +15,17 @@ from datetime import datetime
 from typing import Dict, List
 
 import gradio as gr
+import main
 import numpy as np
 import pandas as pd
+import prompting
 import torch
+import wandb
+from gpu_memory_utils import (get_device_with_most_free_memory,
+                              get_gpu_ids_with_sufficient_memory)
 from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
-
-import main
-import prompting
-import wandb
-from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -69,7 +69,8 @@ class TA_Gradio():
     self.ta = main.TA_Pipeline(opt_weight_path=args.model_weight,
                                ct2_path="../data/models/opt_acc/opt_1.3b_fp16",
                                is_server=True,
-                               device_index_list=opt_device_list)
+                               device_index_list=opt_device_list,
+                               use_clip=True)
     self.prompter = prompting.Prompt_LLMs()
     wandb.init(project=args.wandb_project, entity=args.wandb_entity)
 
@@ -158,116 +159,6 @@ class TA_Gradio():
     with open('/home/zhiweny2/chatbotai/jerome/human_data_review/new_eval_set.json', 'w', encoding='utf-8') as f:
       json.dump(updated_eval_set, f, ensure_ascii=False, indent=4)
 
-  # def question_answer(self, question: str, user_defined_context: str = '', use_gpt3: bool = False, image=None):
-  #   """
-  #   This is the function called with the user clicks the main "Search 🔍" button.
-  #   You can call this from anywhere to run our main program.
-
-  #   question: user-supplied question
-  #   [OPTIONAL] user_defined_context: user-supplied context to make the answer more specific. Usually it's empty, so we AI retrieve a context.
-  #   [OPTIONAL] use_gpt3: Run GPT-3 answer-generation if True, default is False. The True/False value of the checkbox in the UI to "Use GPT3 (paid)".
-  #   [OPTIONAL] image: User-supplied image, for reverse image search.
-  #   """
-  #   start_time = time.monotonic()
-  #   # we generate many answers, then filter it down to the best scoring ones (w/ msmarco).
-
-  #   USER_QUESTION = str(question)
-  #   print("-----------------------------\nINPUT USER QUESTION:", USER_QUESTION, '\n-----------------------------')
-
-  #   # check if user supplied their own context.
-  #   if len(user_defined_context) == 0:
-  #     # retrieve contexts
-  #     start_time_pinecone = time.monotonic()
-  #     top_context_documents = self.ta.retrieve_contexts_from_pinecone(user_question=USER_QUESTION, topk=NUM_ANSWERS_GENERATED)
-  #     top_context_metadata = [
-  #         f"Source: page {int(doc.metadata['page_number'])} in {doc.metadata['textbook_name']}" for doc in top_context_documents
-  #     ]
-  #     top_context_list = [doc.page_content for doc in top_context_documents]
-  #     print(f"⏰ Runtime for Pinecone: {(time.monotonic() - start_time_pinecone):.2f} seconds")
-  #     # print(doc.metadata['page_number'], doc.metadata['textbook_name'])
-
-  #     # TODO: add OPT back in when Wentao is ready.
-  #     # Run opt answer generation
-  #     # generated_answers_list = self.ta.OPT(USER_QUESTION,
-  #     #                                      top_context_list,
-  #     #                                      NUM_ANSWERS_GENERATED,
-  #     #                                      print_answers_to_stdout=False)
-
-  #     # T5 generations
-  #     generated_answers_list = []
-  #     generated_answers_list.extend(
-  #         self.ta.run_t5_completion(USER_QUESTION,
-  #                                   top_context_list,
-  #                                   num_answers_generated=NUM_ANSWERS_GENERATED,
-  #                                   print_answers_to_stdout=True))
-
-  #     print("GENERATED ANS LIST: ", generated_answers_list)
-  #     yield generated_answers_list
-
-  #   else:
-  #     # TODO: add OPT back in when Wentao is ready.
-  #     # opt: passage + question --> answer
-  #     # generated_answers_list = self.ta.OPT_one_question_multiple_answers(
-  #     #     USER_QUESTION,
-  #     #     user_defined_context,
-  #     #     num_answers_generated=NUM_ANSWERS_GENERATED,
-  #     #     print_answers_to_stdout=False)
-
-  #     # T5 generations
-  #     generated_answers_list = []
-  #     generated_answers_list.extend(
-  #         self.ta.run_t5_completion(USER_QUESTION,
-  #                                   user_defined_context,
-  #                                   num_answers_generated=NUM_ANSWERS_GENERATED,
-  #                                   print_answers_to_stdout=True))
-
-  #     yield generated_answers_list
-  # show (the same) user-supplied context for next to each generated answer.
-  # top_context_list = [user_defined_context] * NUM_ANSWERS_GENERATED
-
-  #print("GENERATED ANSWER: ", generated_answers_list)
-  # rank potential answers
-  # todo: rank both!!
-  #final_scores = self.ta.re_ranking_ms_marco(generated_answers_list[NUM_ANSWERS_GENERATED:], USER_QUESTION)
-
-  # return a pd datafarme, to display a gr.dataframe
-  # results = {
-  #     'Answer': generated_answers_list[NUM_ANSWERS_GENERATED:],
-  #     # append page number and textbook name to each context
-  #     'Context': [f"{text}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)],
-  #     # 'Context': top_context_list,
-  #     'Score': final_scores,
-  # }
-  # print(len(generated_answers_list))
-  # print(len(top_context_list))
-  # print(len(final_scores))
-
-  #print("RESULTS: ", results)
-
-  # sort results by MSMarco ranking
-  # generated_results_df = pd.DataFrame(results).sort_values(by=['Score'],
-  #                                                          ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
-
-  # GPT3 for comparison to SOTA. Append to df to ensure it's ALWAYS displayed, regardless of msmarco score.
-  # if use_gpt3:
-  #     generated_results_df = self.add_gpt3_response(generated_results_df, USER_QUESTION, top_context_list)
-
-  # todo: include gpt3 results in logs. generated_results_df to wandb.
-  # append data to wandb
-  # self.log_results_to_wandb(USER_QUESTION, generated_answers_list, final_scores, top_context_list,
-  #                           user_defined_context,
-  #                           time.monotonic() - start_time)
-
-  #print("DF PRINT", generated_results_df)
-
-  # Flag for if we want to use CLIP or not.
-  # use_clip = False
-  # if use_clip:
-  #     return generated_results_df, self.run_clip(question, NUM_IMAGES_TO_SHOW_USER)
-  # else:
-  #     # without running clip
-  #     return generated_results_df.Answer[0], None
-
   def log_results_to_wandb(self, user_question, generated_answers_list, final_scores, top_context_list, user_defined_context,
                            runtime) -> None:
     wandb.log({'runtime (seconds)': runtime})
@@ -318,44 +209,29 @@ class TA_Gradio():
     df_to_append = pd.DataFrame(gpt3_result)
     return pd.concat([df_to_append, results_df], ignore_index=True)
 
-  def chat(self, message, history):
-    history = history or []
-
-    user_utter, topic, topic_history = self.ta.et_main(message)
-    print("Topic:", topic)
-    psg = self.ta.retrieve(user_utter, 1)
-    out_ans = self.ta.OPT(user_utter, psg, 1, False)[0]
-    self.ta.et_add_ans(out_ans)
-    final_out = "[RESPONSE]:" + out_ans
-    history.append((message, final_out))
-    return history
-
   def load_text_answer(self, question, context, use_gpt3, use_equation_checkbox):
     '''
     This function is called when the user clicks the "Generate Answer" button.
     It collects responses and updates the gradio interface iteratively as we get new responses. 
     At the end, it shows a 'main answer' after all answers are generated AND ranked.
     '''
+    # num_returns = 9 = 3 answers + 3 contexts + Gpt3 answer + final ranked answer + CLIP retrieval image list.
+    NUM_RETURNS = 9
+    # clear the previous answers if present
+    clear_list = [gr.update(value=None) for j in range(NUM_RETURNS)]
+    yield clear_list
+
     # contexts
     top_context_list = self.ta.retrieve_contexts_from_pinecone(user_question=question, topk=NUM_ANSWERS_GENERATED)
 
+    # MAIN answer generation loop
     self.generated_answers_list = []
-    self.retrieved_context_list = []
-
-    # clear the previous answers if present
-    clear_list = [gr.update(value=None) for j in range(8)]
-    yield clear_list
-
     for i, ans in enumerate(self.ta.yield_text_answer(question, context)):
-      # print("IN LOAD TEXT ANSWER")
       i = 2 * i
-      ans_list = [gr.update() for j in range(8)]
+      ans_list = [gr.update() for _ in range(NUM_RETURNS)]
       ans_list[i] = gr.update(value=ans[0])
       ans_list[i + 1] = gr.update(value=ans[1])
-
-      # print(ans_list)
       self.generated_answers_list.append(ans[0])
-      self.retrieved_context_list.append(ans[1])
       yield ans_list
 
     final_scores = self.ta.re_ranking_ms_marco(self.generated_answers_list, question)
@@ -367,24 +243,26 @@ class TA_Gradio():
         'Context': top_context_list,
         'Score': final_scores
     }
+    print("RESULTS", results)
 
+    # RUN CLIP -- todo, run right after GPT-3.
+    new_list = [gr.update() for _ in range(NUM_RETURNS)]
+    retrieved_images = self.run_clip(question)
+    new_list[-1] = retrieved_images
+    yield new_list
+
+    # this is causing errors. All arrays must be of the same length.
     generated_results_df = pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
-
-    new_list = [gr.update() for j in range(8)]
-
+    new_list = [gr.update() for _ in range(NUM_RETURNS)]
+    # todo: run this BEFORE the main answer generation loop. Then run CLIP next.
     if use_gpt3:
-      # call gpt3 function
-      print("GPT-3 FLAG CHECK")
       generated_results_df = self.add_gpt3_response(generated_results_df, question, top_context_list, use_equation_checkbox)
       # gpt3 answer is the last update
       new_list[-1] = gr.update(value=str(generated_results_df['Answer'][0]))
 
-    generated_results_df = generated_results_df.reset_index()
-    print("DF: ", generated_results_df)
-
     # best answer is the 2nd last update
+    generated_results_df = generated_results_df.reset_index()
     new_list[-2] = gr.update(value=str(generated_results_df['Answer'][0]))
-    # print(new_list)
     yield new_list
 
   def gpt3_textbox_visibility(use_gpt3):
@@ -429,18 +307,6 @@ class TA_Gradio():
             "Search  🔍",
             variant='primary',
         )
-        # run_reverse_img_search = gr.Button("Image search", variant='secondary',)
-      # with gr.Row():
-      # event = run.click(fn=self.question_answer,
-      #                   inputs=[search_question, context, use_gpt3_checkbox, image],
-      #                   outputs=[
-      #                       gr.Dataframe(
-      #                           headers=["Answer", "Score", "Context", "Metadata"],
-      #                           wrap=True,
-      #                       ),
-      #                       gr.Gallery(label="Lecture images", show_label=False, elem_id="gallery").style(grid=[2], height="auto")
-      #                   ],
-      #                   scroll_to_output=True)
       ''' RESULTS SECTION for text answers '''
       with gr.Row():
         with gr.Column():
@@ -457,10 +323,10 @@ class TA_Gradio():
           context1 = gr.Textbox(label="Context 1", wrap=True)
 
           feedback_radio1 = gr.Radio(['Like', 'Dislike'], label="Feedback")
-          custom_ans1 = gr.Textbox(label="Custom Answer", input="text")
+          custom_ans1 = gr.Textbox(label="What would the ideal answer have been?", input="text")
         with gr.Column():
           generated_answer2 = gr.Textbox(label="Answer 2", wrap=True)
-          context2 = gr.Textbox(label="Context 2", wrap=True)
+          context2 = gr.Textbox(label="What would the ideal answer have been?", wrap=True)
 
           feedback_radio2 = gr.Radio(['Like', 'Dislike'], label="Feedback")
           custom_ans2 = gr.Textbox(label="Custom Answer", input="text")
@@ -469,10 +335,10 @@ class TA_Gradio():
           context3 = gr.Textbox(label="Context 3", wrap=True)
 
           feedback_radio3 = gr.Radio(['Like', 'Dislike'], label="Feedback")
-          custom_ans3 = gr.Textbox(label="Custom Answer", input="text")
+          custom_ans3 = gr.Textbox(label="What would the ideal answer have been?", input="text")
 
       with gr.Row():
-        feedback_btn = gr.Button(value="submit")
+        feedback_btn = gr.Button(value="Submit feedback")
         feedback_btn.click(save_feedback,
                            inputs=[
                                search_question, generated_answer1, context1, feedback_radio1, custom_ans1, generated_answer2, context2,
@@ -480,41 +346,43 @@ class TA_Gradio():
                            ],
                            outputs=[feedback_radio1, custom_ans1, feedback_radio2, custom_ans2, feedback_radio3, custom_ans3])
 
+      # Show clip-retrieved images
       with gr.Row():
-        lec_gallery = gr.Gallery(label="Lecture images", show_label=False, elem_id="gallery").style(grid=[2], height="auto")
-
-        #run.click(fn=self.answer_loading, inputs=[search_question, context, use_gpt3_checkbox, image])
+        with gr.Column():
+          gr.Markdown("""## Lecture slides
+                      We use two systems for image retrieval: standard CLIP and OCR + semantic search for text-heavy slides.
+                      """)
+          lec_gallery = gr.Gallery(label="Lecture images", show_label=False, elem_id="gallery").style(grid=[2], height="auto")
 
         # event = run.click(fn=self.question_answer,
         #                   inputs=[search_question, context, use_gpt3_checkbox, image],
         #                   outputs=[generated_answer, lec_gallery],
         #                   scroll_to_output=True)
 
-        run.click(fn=self.load_text_answer,
-                  inputs=[search_question, context, use_gpt3_checkbox, use_equation_checkbox],
-                  outputs=[generated_answer1, context1, generated_answer2, context2, generated_answer3, context3, best_answer, gpt3_answer])
+        run.click(
+            fn=self.load_text_answer,
+            inputs=[search_question, context, use_gpt3_checkbox, use_equation_checkbox],
+            outputs=[
+                generated_answer1,
+                context1,
+                generated_answer2,
+                context2,
+                generated_answer3,
+                context3,
+                best_answer,
+                gpt3_answer,
+                # TODO: add a gallary return here for the images.
+                lec_gallery
+            ])
 
-        # with gr.Row():
-        #   feedback_radio = gr.Radio(['Like', 'Dislike'], label="Feedback")
-        #   custom_ans = gr.Textbox(label="Custom Answer", input="text")
-        #   feedback_btn = gr.Button(value="submit")
-        #   feedback_btn.click(save_feedback, inputs=[feedback_radio, custom_ans, search_question, generated_answer1])
-        # with gr.Row():
-        #   txt = gr.Textbox(label="chat", lines=2)
-        #   chatbot = gr.Chatbot().style(color_map=("green", "pink"))
-        # with gr.Row():
-        #   chat = gr.Button("Chat", variant='primary')
+    # ensure previous sessions are closed from our public port 8888
+    gr.close_all()
 
-    # demo = gr.Interface(
-    #     self.chat,
-    #     ["text", "state"],
-    #     [chatbot, "state"],
-    #     allow_flagging="never",
-    # )
     input_blocks.queue(concurrency_count=2)  # limit concurrency
-    # input_blocks.launch(share=True)  #, server_port=8888)
-    input_blocks.launch(share=True, server_name='0.0.0.0', server_port=8888)
-    input_blocks.integrate(wandb=wandb)
+    input_blocks.launch(share=True, favicon_path='./astro_on_horse.jpg')
+    # input_blocks.launch(share=True, server_name='0.0.0.0', server_port=8888, favicon_path='./astro_on_horse.jpg')
+    # debug=True
+    # input_blocks.integrate(wandb=wandb)
 
 
 def save_feedback(query, answer1, context1, likes1, custom_answer1, answer2, context2, likes2, custom_answer2, answer3, context3, likes3,
