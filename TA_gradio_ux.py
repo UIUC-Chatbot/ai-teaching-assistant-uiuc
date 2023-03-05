@@ -15,16 +15,17 @@ from datetime import datetime
 from typing import Dict, List
 
 import gradio as gr
-import main
 import numpy as np
 import pandas as pd
-import prompting
 import torch
-import wandb
-from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
+
+import main
+import prompting
+import wandb
+from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -75,7 +76,6 @@ class TA_Gradio():
 
   def run_clip(self, user_question: str, num_images_returned: int = 4):
     return self.ta.clip(user_question, num_images_returned)
-     
 
   def model_evaluation(self,
                        eval_set_path: str = '/home/zhiweny2/chatbotai/jerome/human_data_review/gpt-3_semantic_search/1_top_quality.json'):
@@ -182,7 +182,7 @@ class TA_Gradio():
       This answer is ALWAYS shown to the user, no matter the score. It's the first element in the dataframe. 
       It is scored by the ranker, but it is not subject to filtering like the other generations are.
     """
-    generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
+    generated_answer = self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
     score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
 
     gpt3_result = {
@@ -208,15 +208,11 @@ class TA_Gradio():
     }
     df_to_append = pd.DataFrame(gpt3_result)
     return pd.concat([df_to_append, results_df], ignore_index=True)
-  
-  def add_gpt3_response_new(self,
-                        user_question,
-                        top_context_list: List[str],
-                        use_equation_prompt: bool = False):
-    
+
+  def add_gpt3_response_new(self, user_question, top_context_list: List[str], use_equation_prompt: bool = False):
+
     generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
     return [generated_answer, top_context_list[0]]
-
 
   def load_text_answer(self, question, context, use_gpt3, use_equation_checkbox):
     '''
@@ -239,7 +235,7 @@ class TA_Gradio():
     if use_gpt3:
       gpt3_response = self.add_gpt3_response_new(question, top_context_list, use_equation_checkbox)
       ans_list = [gr.update() for _ in range(NUM_RETURNS)]
-      ans_list[-1] = None # CLIP image value
+      ans_list[-1] = None  # CLIP image value
       ans_list[-2] = gr.update(value=str(gpt3_response[0]))
       yield ans_list
     else:
@@ -293,13 +289,11 @@ class TA_Gradio():
     ans_list[-3] = gr.update(value=str(generated_results_df['Answer'][0]))
     yield ans_list
 
-
   def gpt3_textbox_visibility(use_gpt3):
     if use_gpt3:
       return gr.update(visible=True)
     else:
       return gr.update(visible=False)
-
 
   def main(self,):
     with gr.Blocks() as input_blocks:
