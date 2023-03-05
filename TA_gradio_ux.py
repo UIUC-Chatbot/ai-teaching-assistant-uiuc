@@ -75,6 +75,7 @@ class TA_Gradio():
 
   def run_clip(self, user_question: str, num_images_returned: int = 4):
     return self.ta.clip(user_question, num_images_returned)
+     
 
   def model_evaluation(self,
                        eval_set_path: str = '/home/zhiweny2/chatbotai/jerome/human_data_review/gpt-3_semantic_search/1_top_quality.json'):
@@ -180,7 +181,7 @@ class TA_Gradio():
       GPT3 for comparison to SOTA.
       This answer is ALWAYS shown to the user, no matter the score. It's the first element in the dataframe. 
       It is scored by the ranker, but it is not subject to filtering like the other generations are.
-      """
+    """
     generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
     score = self.ta.re_ranking_ms_marco([generated_answer], user_question)
 
@@ -207,6 +208,15 @@ class TA_Gradio():
     }
     df_to_append = pd.DataFrame(gpt3_result)
     return pd.concat([df_to_append, results_df], ignore_index=True)
+  
+  def add_gpt3_response_new(self,
+                        user_question,
+                        top_context_list: List[str],
+                        use_equation_prompt: bool = False):
+    
+    generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
+    return [generated_answer, top_context_list[0]]
+
 
   def load_text_answer(self, question, context, use_gpt3, use_equation_checkbox):
     '''
@@ -217,25 +227,47 @@ class TA_Gradio():
     # num_returns = 9 = 3 answers + 3 contexts + Gpt3 answer + final ranked answer + CLIP retrieval image list.
     NUM_RETURNS = 9
     # clear the previous answers if present
-    clear_list = [gr.update() for _ in range(NUM_RETURNS)]
-    clear_list[-1] = []  # CLIP image list
+    clear_list = [gr.update(value=None) for _ in range(NUM_RETURNS)]
+    clear_list[-1] = None  # CLIP image list
+    print("CLEAR LIST: ", clear_list)
     yield clear_list
 
     # contexts
     top_context_list = self.ta.retrieve_contexts_from_pinecone(user_question=question, topk=NUM_ANSWERS_GENERATED)
+
+    # getting answer from GPT-3
+    if use_gpt3:
+      gpt3_response = self.add_gpt3_response_new(question, top_context_list, use_equation_checkbox)
+      ans_list = [gr.update() for _ in range(NUM_RETURNS)]
+      ans_list[-1] = None # CLIP image value
+      ans_list[-2] = gr.update(value=str(gpt3_response[0]))
+      yield ans_list
+    else:
+      gpt3_response = None
+
+    # RUN CLIP -- todo, run right after GPT-3.
+    ans_list = [gr.update() for _ in range(NUM_RETURNS)]
+    #ans_list[-1] = self.run_clip(question)  # retrieved_images
+    image_list = self.run_clip(question)
+    ans_list[-1] = image_list
+    yield ans_list
 
     # MAIN answer generation loop
     self.generated_answers_list = []
     for i, ans in enumerate(self.ta.yield_text_answer(question, context)):
       i = 2 * i
       ans_list = [gr.update() for _ in range(NUM_RETURNS)]
-      ans_list[-1] = []  # CLIP image list
+      ans_list[-1] = image_list  # CLIP image list
 
       ans_list[i] = gr.update(value=ans[0])
       ans_list[i + 1] = gr.update(value=ans[1])
       self.generated_answers_list.append(ans[0])
       yield ans_list
 
+    # RANKING the answers here along with GPT-3 answer
+    if gpt3_response is not None:
+      self.generated_answers_list.append(gpt3_response[0])
+      top_context_list.append(top_context_list[0])
     final_scores = self.ta.re_ranking_ms_marco(self.generated_answers_list, question)
     # print(final_scores)
 
@@ -245,33 +277,29 @@ class TA_Gradio():
         'Context': top_context_list,
         'Score': final_scores
     }
-    print("RESULTS", results)
-
-    # RUN CLIP -- todo, run right after GPT-3.
-    ans_list = [gr.update() for _ in range(NUM_RETURNS)]
-    ans_list[-1] = self.run_clip(question)  # retrieved_images
-    yield ans_list
+    print("RESULTS")
+    print(len(results['Answer']))
+    print(len(results['Context']))
+    print(len(results['Score']))
 
     # this is causing errors. All arrays must be of the same length.
     generated_results_df = pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
     ans_list = [gr.update() for _ in range(NUM_RETURNS)]
-    ans_list[-1] = []  # CLIP image list
-    # todo: run this BEFORE the main answer generation loop. Then run CLIP next.
-    if use_gpt3:
-      generated_results_df = self.add_gpt3_response(generated_results_df, question, top_context_list, use_equation_checkbox)
-      # gpt3 answer is the last update
-      ans_list[-2] = gr.update(value=str(generated_results_df['Answer'][0]))
+    ans_list[-1] = image_list  # CLIP image list
 
     # best answer is the 2nd last update
     generated_results_df = generated_results_df.reset_index()
+    print("GENERATED RESULTS DF: ", generated_results_df)
     ans_list[-3] = gr.update(value=str(generated_results_df['Answer'][0]))
     yield ans_list
+
 
   def gpt3_textbox_visibility(use_gpt3):
     if use_gpt3:
       return gr.update(visible=True)
     else:
       return gr.update(visible=False)
+
 
   def main(self,):
     with gr.Blocks() as input_blocks:
@@ -315,8 +343,6 @@ class TA_Gradio():
           gr.Markdown("""## Results""")
           best_answer = gr.Textbox(label="Best Answer", wrap=True)  # scroll_to_output=True
           gpt3_answer = gr.Textbox(label="GPT-3 Answer", wrap=True, visible=False)
-          print("GPT-3 CHECKBOX:", use_gpt3_checkbox)
-          print("GPT-3 CHECKBOX:", not (use_gpt3_checkbox))
           use_gpt3_checkbox.change(fn=self.gpt3_textbox_visibility, outputs=[gpt3_answer])
 
       with gr.Row():
@@ -328,10 +354,10 @@ class TA_Gradio():
           custom_ans1 = gr.Textbox(label="What would the ideal answer have been?", input="text")
         with gr.Column():
           generated_answer2 = gr.Textbox(label="Answer 2", wrap=True)
-          context2 = gr.Textbox(label="What would the ideal answer have been?", wrap=True)
+          context2 = gr.Textbox(label="Context 2", wrap=True)
 
           feedback_radio2 = gr.Radio(['Like', 'Dislike'], label="Feedback")
-          custom_ans2 = gr.Textbox(label="Custom Answer", input="text")
+          custom_ans2 = gr.Textbox(label="What would the ideal answer have been?", input="text")
         with gr.Column():
           generated_answer3 = gr.Textbox(label="Answer 3", wrap=True)
           context3 = gr.Textbox(label="Context 3", wrap=True)
@@ -373,7 +399,7 @@ class TA_Gradio():
                 context3,
                 best_answer,
                 gpt3_answer,
-                # TODO: add a gallary return here for the images.
+                # TODO: add a gallery return here for the images.
                 lec_gallery
             ])
 
@@ -421,38 +447,6 @@ def save_feedback(query, answer1, context1, likes1, custom_answer1, answer2, con
   # clear the feedback components
   clear_list = [gr.update(value=None) for i in range(6)]
   return clear_list
-
-
-# def save_feedback(query, answer1, context1, likes1, custom_answer1, answer2, context2, likes2, custom_answer2, answer3, context3, likes3,
-#                   custom_answer3):
-#   new_data = {
-#       'gradio_feedback': [{
-#           'question': query,
-#           'generated_answer_1': answer1,
-#           'context_1': context1,
-#           'feedback_1': likes1,
-#           'custom_answer_1': custom_answer1,
-#           'generated_answer_2': answer2,
-#           'context_2': context2,
-#           'feedback_2': likes2,
-#           'custom_answer_2': custom_answer2,
-#           'generated_answer_3': answer3,
-#           'context_3': context3,
-#           'feedback_3': likes3,
-#           'custom_answer_3': custom_answer3
-#       }]
-#   }
-#   # save to csv --> get question and answers here.
-#   filepath = "feedback.json"
-#   if os.path.exists(filepath):
-#     with open("feedback.json", "r+") as f:
-#       file_data = json.load(f)
-#       file_data['gradio_feedback'].append(new_data['gradio_feedback'][0])
-#       f.seek(0)
-#       json.dump(file_data, f, indent=4)
-#   else:
-#     with open("feedback.json", "w") as f:
-#       json.dump(new_data, f)
 
 
 def make_inference_id(name: str) -> str:
