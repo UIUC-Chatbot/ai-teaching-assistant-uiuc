@@ -209,11 +209,6 @@ class TA_Gradio():
     df_to_append = pd.DataFrame(gpt3_result)
     return pd.concat([df_to_append, results_df], ignore_index=True)
 
-  def add_gpt3_response_new(self, user_question, top_context_list: List[str], use_equation_prompt: bool = False):
-
-    generated_answer = "GPT-3 response:\n" + self.ta.gpt3_completion(user_question, top_context_list[0], use_equation_prompt)
-    return [generated_answer, top_context_list[0]]
-
   def load_text_answer(self, question, context, use_gpt3, use_equation_checkbox):
     '''
     This function is called when the user clicks the "Generate Answer" button.
@@ -231,12 +226,12 @@ class TA_Gradio():
     # contexts
     top_context_list = self.ta.retrieve_contexts_from_pinecone(user_question=question, topk=NUM_ANSWERS_GENERATED)
 
-    # getting answer from GPT-3
+    # GPT-3
     if use_gpt3:
-      gpt3_response = self.add_gpt3_response_new(question, top_context_list, use_equation_checkbox)
+      gpt3_generated_answer = self.ta.gpt3_completion(question, top_context_list[0], use_equation_checkbox)
       ans_list = [gr.update() for _ in range(NUM_RETURNS)]
       ans_list[-1] = None  # CLIP image value
-      ans_list[-2] = gr.update(value=str(gpt3_response[0]))
+      ans_list[-2] = gr.update(value=str(gpt3_generated_answer))
       yield ans_list
     else:
       gpt3_response = None
