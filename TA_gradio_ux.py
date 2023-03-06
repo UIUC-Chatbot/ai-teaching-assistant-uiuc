@@ -195,6 +195,8 @@ class TA_Gradio():
 
   def add_gpt3_fewshot_response(self, results_df: pd.DataFrame, user_question, top_context_list: List[str]) -> pd.DataFrame:
     """
+    MOSTLY DEPRICATED. 
+    
     GPT3 few shot for comparison to SOTA.
     Note : few shot doesn't use context.
     This answer is ALWAYS shown to the user, no matter the score. It is not subject to score filtering like the other generations are.
@@ -220,18 +222,18 @@ class TA_Gradio():
     # clear the previous answers if present
     clear_list = [gr.update(value=None) for _ in range(NUM_RETURNS)]
     clear_list[-1] = None  # CLIP image list
-    print("CLEAR LIST: ", clear_list)
     yield clear_list
 
     # contexts
+    # todo, account for when user supplies their own context.
     top_context_list = self.ta.retrieve_contexts_from_pinecone(user_question=question, topk=NUM_ANSWERS_GENERATED)
 
     # GPT-3
     if use_gpt3:
-      gpt3_generated_answer = self.ta.gpt3_completion(question, top_context_list[0], use_equation_checkbox)
+      gpt3_response = self.ta.gpt3_completion(question, top_context_list[0], use_equation_checkbox)
       ans_list = [gr.update() for _ in range(NUM_RETURNS)]
       ans_list[-1] = None  # CLIP image value
-      ans_list[-2] = gr.update(value=str(gpt3_generated_answer))
+      ans_list[-2] = gr.update(value=str(gpt3_response))
       yield ans_list
     else:
       gpt3_response = None
@@ -257,7 +259,7 @@ class TA_Gradio():
 
     # RANKING the answers here along with GPT-3 answer
     if gpt3_response is not None:
-      self.generated_answers_list.append(gpt3_response[0])
+      self.generated_answers_list.append(gpt3_response)
       top_context_list.append(top_context_list[0])
     final_scores = self.ta.re_ranking_ms_marco(self.generated_answers_list, question)
     # print(final_scores)
@@ -268,10 +270,6 @@ class TA_Gradio():
         'Context': top_context_list,
         'Score': final_scores
     }
-    print("RESULTS")
-    print(len(results['Answer']))
-    print(len(results['Context']))
-    print(len(results['Score']))
 
     # this is causing errors. All arrays must be of the same length.
     generated_results_df = pd.DataFrame(results).sort_values(by=['Score'], ascending=False).head(NUM_ANSWERS_TO_SHOW_USER)
@@ -280,7 +278,6 @@ class TA_Gradio():
 
     # best answer is the 2nd last update
     generated_results_df = generated_results_df.reset_index()
-    print("GENERATED RESULTS DF: ", generated_results_df)
     ans_list[-3] = gr.update(value=str(generated_results_df['Answer'][0]))
     yield ans_list
 

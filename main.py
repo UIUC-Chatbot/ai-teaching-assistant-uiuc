@@ -7,11 +7,12 @@ import time
 from typing import Any, Dict, List
 
 import pinecone  # cloud-hosted vector database for context retrieval
-# for auto-gpu selection
-from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 # for vector search
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
+
+# for auto-gpu selection
+from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
 sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
@@ -37,7 +38,6 @@ from entity_tracker import entity_tracker
 # for OPT
 from module import *  # import generation model(OPT/T5)
 from PIL import Image
-
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer, GPT2Tokenizer, OPTForCausalLM, T5ForConditionalGeneration)
 
 
@@ -432,8 +432,7 @@ class TA_Pipeline:
 
     img_path_list = []
     for img in imgs:
-      print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
+      # print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
       img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
-    print("Final image path: ", img_path_list)
 
     return img_path_list
