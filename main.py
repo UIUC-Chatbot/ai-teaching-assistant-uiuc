@@ -223,6 +223,8 @@ class TA_Pipeline:
     response_list = []
     assert num_answers_generated == len(top_context_list), "There must be a unique context for each generated answer. "
     for i in range(num_answers_generated):
+      # TODO: there should be context in each of these examples. It can be a very short sentence, but we need consistent formatting.
+      # like this: "Task: Open book QA. Question: %s \nContext : %s \nAnswer : "
       examples = """
           Task: Open book QA. Question: How do I check for overflow in a 2's complement operation. Answer: Overflow can be indicated in a 2's complement if the result has the wrong sign, such as if 2 positive numbers sum to a negative number or if 2 negative numbers sum to positive numbers.
           Task: Open book QA. Question: What is the order of precedence in C programming? Answer: PEMDAS (Parenthesis, Exponents, Multiplication, Division, Addition, Subtraction)
