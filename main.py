@@ -39,6 +39,8 @@ from entity_tracker import entity_tracker
 from module import *  # import generation model(OPT/T5)
 from PIL import Image
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer, GPT2Tokenizer, OPTForCausalLM, T5ForConditionalGeneration)
+# import docquery, make sure to downgrade transformers to transformers==4.24.0, Pillow==9.2.0
+from docquery import document, pipeline
 
 
 class TA_Pipeline:
@@ -145,8 +147,7 @@ class TA_Pipeline:
     self._load_contriever()
     self._load_t5()
     self._load_pinecone_vectorstore()
-    # TODO: install doc-query dependencies
-    # self._load_doc_query()
+    self._load_doc_query()
 
   def _load_clip(self):
     self.clip_search_class = ClipImage(path_of_ppt_folders=self.LECTURE_SLIDES_DIR,
@@ -187,7 +188,10 @@ class TA_Pipeline:
   def _load_doc_query(self):
     self.pipeline = pipeline('document-question-answering')
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc.
-    self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
+    # self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
+    # load the tensor version of the student notebook
+    self.doc = torch.load('/mnt/project/chatbotai/jerome/docquery_tensor/docquery_textbook_tensor.pt')
+    
 
   def _load_t5(self):
     self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xxl")
@@ -419,12 +423,12 @@ class TA_Pipeline:
 
   def doc_query(self, user_question, num_answers_generated: int = 3):
     """ Run DocQuery. Lots of extra dependeicies. 
-        TODO: make it so we can save the 'self.doc' object to disk and load it later.
-        """
+    Took aroung 30s per question.
+    """
     self.user_question = user_question
-    answer = self.pipeline(question=self.user_question, **self.doc.context, top_k=num_answers_generated)
-    # todo: this has page numbers, that's nice.
-    return answer[0]['answer']
+    answers = self.pipeline(question=self.user_question, **self.doc, top_k=num_answers_generated)
+    answer_list = [ans['answer'] for ans in answers]
+    return answer_list
 
   def clip(self, search_question: str, num_images_returned: int = 4):
     """ Run CLIP. 
