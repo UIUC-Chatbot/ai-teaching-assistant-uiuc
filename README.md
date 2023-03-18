@@ -12,7 +12,9 @@ We use data from textbooks, lecture videos, and student QA forums (ordered, subj
 my favorite contribution is the novel approach of semantic search retrieval during RLHF, using a dataset I iteratively produced by hiring a team of five Electrical Engineering students. That data is freely available on Huggingface here: https://huggingface.co/datasets/kastan/rlhf-qa-comparisons. We specifically cover the material necessary in the UIUC course ECE 120, intro to Electrical Engineering.
 
 ## Files
-- `main.py`: A main aggregator of our many LLM implementations.
+- `main.py`: The main aggregator of our many LLM implementations.
 - `TA_gradio_ux.py`: Defines the Gradio UX, and calls models defined in `main.py`.
 - `prompting.py`: Our home for prompt engineering.
+- `evaluation.py`: Run GPT-3 powered evaluation of our system. We routinely run this to determine if each additional feature makes responses "better" or "worse".
+- `feedback.json`: Collection of real user feedback via the Gradio web app.
 - `run_ta_gradio.sh`: Entrypoint launch script.
