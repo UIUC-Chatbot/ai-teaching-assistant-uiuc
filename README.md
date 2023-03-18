@@ -9,7 +9,7 @@ Our system runs 11 separate models in parallel for text/image retrieval, generat
 We use data from textbooks, lecture videos, and student QA forums (ordered, subjuctively, by importance). None of this data is currently available publically because this project was not granted those rights by the authors.
 
 ### RLHF 
-my favorite contribution is the novel approach of semantic search retrieval during RLHF, using a dataset I iteratively produced by hiring a team of five Electrical Engineering students. That data is freely available on Huggingface here: https://huggingface.co/datasets/kastan/rlhf-qa-comparisons. We specifically cover the material necessary in the UIUC course ECE 120, intro to Electrical Engineering.
+My favorite contribution is the novel approach of semantic search retrieval during RLHF, using a dataset I iteratively produced by hiring a team of five Electrical Engineering students. That data is freely available on Huggingface here: https://huggingface.co/datasets/kastan/rlhf-qa-comparisons. We specifically cover the material necessary in the UIUC course ECE 120, intro to Electrical Engineering.
 
 # Usage
 This project is fully open source, with the exception of commercial textbooks. **I highly encourage you to simply plug in your own [Pinecone database](https://www.pinecone.io/) of documents and use this in your work!**
