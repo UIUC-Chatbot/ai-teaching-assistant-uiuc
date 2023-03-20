@@ -26,6 +26,8 @@ os.environ['HF_DATASETS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/data
 
 # for CLIP
 # import clip
+
+# import docquery, make sure to downgrade transformers to transformers==4.24.0, Pillow==9.2.0
 # from docquery import document, pipeline   # import docquery
 import contriever.contriever_final  # import Asmita's contriever
 # for gpt-3 completions
@@ -39,8 +41,6 @@ from entity_tracker import entity_tracker
 from module import *  # import generation model(OPT/T5)
 from PIL import Image
 from transformers import (AutoModelForSequenceClassification, AutoTokenizer, GPT2Tokenizer, OPTForCausalLM, T5ForConditionalGeneration)
-# import docquery, make sure to downgrade transformers to transformers==4.24.0, Pillow==9.2.0
-from docquery import document, pipeline
 
 
 class TA_Pipeline:
@@ -143,11 +143,12 @@ class TA_Pipeline:
   def load_modules(self):
     # self._load_opt()
     # self._load_et()
+    # self._load_contriever()
+    # self._load_doc_query()
+    
     self._load_reranking_ms_marco()
-    self._load_contriever()
     self._load_t5()
     self._load_pinecone_vectorstore()
-    self._load_doc_query()
 
   def _load_clip(self):
     self.clip_search_class = ClipImage(path_of_ppt_folders=self.LECTURE_SLIDES_DIR,
