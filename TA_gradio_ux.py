@@ -1,44 +1,40 @@
 import os
 import sys
 
+from dotenv import load_dotenv
+
 ROOT_DIR = os.path.abspath("../retreival-generation-system/trt_accelerate/HuggingFace/")
 sys.path.append(ROOT_DIR)
 sys.path.append("../human_data_review")
 sys.path.append("../retreival-generation-system")
 sys.path.append("../retreival-generation-system/trt_accelerate")
+
+# load API keys from globally-availabe .env file
+load_dotenv(dotenv_path=os.environ["SECRETS_FILEPATH"], override=True)
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import argparse
 import json
-import pprint
-import random
-import time
-from datetime import datetime
+import signal
 from typing import Dict, List
 
 import gradio as gr
 import numpy as np
 import pandas as pd
 import torch
+import torch.autograd.profiler as profiler
 from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
 
+# This project's own code
 import main
 import prompting
 import wandb
 from gpu_memory_utils import (get_device_with_most_free_memory, get_gpu_ids_with_sufficient_memory)
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
 # ensure previous sessions are closed from our public port 8888
 gr.close_all()
-
-# from .autonotebook import tqdm as notebook_tqdm
-
-# Todo: integrate CLIP.
-# Todo: log images.
-# wandb.log(
-#     {"Style reference": [wandb.Image(transforms.ToPILImage()(target_im))]},
-#     step=0)
 
 NUM_ANSWERS_GENERATED = 3
 NUM_ANSWERS_TO_SHOW_USER = 3
@@ -56,7 +52,12 @@ def main_arg_parse():
   return args
 
 
-import torch.autograd.profiler as profiler
+def handler(signum, frame):
+  """
+  Kill the program after set time (defaults to 60 minutes). Prevents people from hogging the GPUs.
+  """
+  print("Time's up! Killing your program after 60 minutes to prevent hogging the GPUs...")
+  raise SystemExit
 
 
 class TA_Gradio():
@@ -391,6 +392,10 @@ def make_inference_id(name: str) -> str:
 
 
 if __name__ == '__main__':
+  # Auto-kill the program after 60 min, to prevent hogging the GPUs.
+  signal.signal(signal.SIGALRM, handler)
+  signal.alarm(60 * 60)  # Set the alarm to go off in 60 minutes
+
   args = main_arg_parse()
   my_ta = TA_Gradio(args)
   # my_ta.model_evaluation()

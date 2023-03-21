@@ -1,8 +1,4 @@
 wandb/*
-
-# don't push our API keys
-run_ta_gradio.sh
-
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

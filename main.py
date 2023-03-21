@@ -11,6 +11,7 @@ import pinecone  # cloud-hosted vector database for context retrieval
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
 
+import prompting
 # for auto-gpu selection
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
@@ -18,8 +19,10 @@ sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
-import prompting
+from dotenv import load_dotenv
 
+# load API keys from globally-availabe .env file
+load_dotenv(dotenv_path=os.environ["SECRETS_FILEPATH"], override=True)
 # set huggingface cace to our base dir, so we all share it.
 os.environ['TRANSFORMERS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/transformers'
 os.environ['HF_DATASETS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/datasets'
