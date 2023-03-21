@@ -194,7 +194,9 @@ class TA_Pipeline:
   def _load_doc_query(self):
     self.pipeline = pipeline('document-question-answering')
     # self.doc = document.load_document("../data-generator/notes/Student_Notes_short.pdf") # faster runtime on short test doc.
-    self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
+    # self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
+    # load the tensor version of the student notebook
+    self.doc = torch.load('/mnt/project/chatbotai/jerome/docquery_tensor/docquery_textbook_tensor.pt')
 
   def _load_t5(self):
     self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xxl")
@@ -276,6 +278,8 @@ class TA_Pipeline:
     response_list = []
     assert num_answers_generated == len(top_context_list), "There must be a unique context for each generated answer. "
     for i in range(num_answers_generated):
+      # TODO: there should be context in each of these examples. It can be a very short sentence, but we need consistent formatting.
+      # like this: "Task: Open book QA. Question: %s \nContext : %s \nAnswer : "
       examples = """
           Task: Open book QA. Question: How do I check for overflow in a 2's complement operation. Answer: Overflow can be indicated in a 2's complement if the result has the wrong sign, such as if 2 positive numbers sum to a negative number or if 2 negative numbers sum to positive numbers.
           Task: Open book QA. Question: What is the order of precedence in C programming? Answer: PEMDAS (Parenthesis, Exponents, Multiplication, Division, Addition, Subtraction)
@@ -439,12 +443,12 @@ class TA_Pipeline:
 
   def doc_query(self, user_question, num_answers_generated: int = 3):
     """ Run DocQuery. Lots of extra dependeicies. 
-        TODO: make it so we can save the 'self.doc' object to disk and load it later.
-        """
+    Took aroung 30s per question.
+    """
     self.user_question = user_question
-    answer = self.pipeline(question=self.user_question, **self.doc.context, top_k=num_answers_generated)
-    # todo: this has page numbers, that's nice.
-    return answer[0]['answer']
+    answers = self.pipeline(question=self.user_question, **self.doc, top_k=num_answers_generated)
+    answer_list = [ans['answer'] for ans in answers]
+    return answer_list
 
   def clip(self, search_question: str, num_images_returned: int = 4):
     """ Run CLIP. 
