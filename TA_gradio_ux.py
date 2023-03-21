@@ -238,18 +238,32 @@ class TA_Gradio():
     else:
       gpt3_response = None
 
-    # RUN CLIP -- todo, run right after GPT-3.
-    ans_list = [gr.update() for _ in range(NUM_RETURNS)]
-    #ans_list[-1] = self.run_clip(question)  # retrieved_images
-    image_list = self.run_clip(question)
-    ans_list[-1] = image_list
-    yield ans_list
+    # easy disable clip
+    run_clip = True
+    if run_clip:
+      # RUN CLIP
+      ans_list = [gr.update() for _ in range(NUM_RETURNS)]
+      #ans_list[-1] = self.run_clip(question)  # retrieved_images
+      image_list = self.run_clip(question)
+      ans_list[-1] = image_list
+      yield ans_list
+    else:
+      # collect placeholder images instead of clip
+      from io import BytesIO
+
+      import requests
+      from PIL import Image
+      image_list = []
+      for i in range(NUM_IMAGES_TO_SHOW_USER):
+        response = requests.get("https://picsum.photos/200/300")
+        image_list.append(Image.open(BytesIO(response.content)))
 
     # MAIN answer generation loop
     self.generated_answers_list = []
     for i, ans in enumerate(self.ta.yield_text_answer(question, context)):
       i = 2 * i
       ans_list = [gr.update() for _ in range(NUM_RETURNS)]
+
       ans_list[-1] = image_list  # CLIP image list
 
       ans_list[i] = gr.update(value=ans[0])
@@ -327,29 +341,29 @@ class TA_Gradio():
       with gr.Row():
         with gr.Column():
           gr.Markdown("""## Results""")
-          best_answer = gr.Textbox(label="Best Answer", wrap=True)  # scroll_to_output=True
-          gpt3_answer = gr.Textbox(label="GPT-3 Answer", wrap=True, visible=False)
+          best_answer = gr.Textbox(label="Best Answer")  # scroll_to_output=True
+          gpt3_answer = gr.Textbox(label="GPT-3 Answer", visible=False)
           use_gpt3_checkbox.change(fn=self.gpt3_textbox_visibility, outputs=[gpt3_answer])
 
       with gr.Row():
         with gr.Column():
-          generated_answer1 = gr.Textbox(label="Answer 1", wrap=True)
-          context1 = gr.Textbox(label="Context 1", wrap=True)
+          generated_answer1 = gr.Textbox(label="Answer 1")
+          context1 = gr.Textbox(label="Context 1")
 
           feedback_radio1 = gr.Radio(['Like', 'Dislike'], label="Feedback")
-          custom_ans1 = gr.Textbox(label="What would the ideal answer have been?", input="text")
+          custom_ans1 = gr.Textbox(label="What would the ideal answer have been?")
         with gr.Column():
-          generated_answer2 = gr.Textbox(label="Answer 2", wrap=True)
-          context2 = gr.Textbox(label="Context 2", wrap=True)
+          generated_answer2 = gr.Textbox(label="Answer 2")
+          context2 = gr.Textbox(label="Context 2")
 
           feedback_radio2 = gr.Radio(['Like', 'Dislike'], label="Feedback")
-          custom_ans2 = gr.Textbox(label="What would the ideal answer have been?", input="text")
+          custom_ans2 = gr.Textbox(label="What would the ideal answer have been?")
         with gr.Column():
-          generated_answer3 = gr.Textbox(label="Answer 3", wrap=True)
-          context3 = gr.Textbox(label="Context 3", wrap=True)
+          generated_answer3 = gr.Textbox(label="Answer 3")
+          context3 = gr.Textbox(label="Context 3")
 
           feedback_radio3 = gr.Radio(['Like', 'Dislike'], label="Feedback")
-          custom_ans3 = gr.Textbox(label="What would the ideal answer have been?", input="text")
+          custom_ans3 = gr.Textbox(label="What would the ideal answer have been?")
 
       with gr.Row():
         feedback_btn = gr.Button(value="Submit feedback")
@@ -393,8 +407,17 @@ class TA_Gradio():
     gr.close_all()
 
     input_blocks.queue(concurrency_count=2)  # limit concurrency
-    input_blocks.launch(share=True, favicon_path='./astro_on_horse.jpg')
-    # input_blocks.launch(share=True, server_name='0.0.0.0', server_port=8888, favicon_path='./astro_on_horse.jpg')
+    # input_blocks.launch(share=True, favicon_path='./astro_on_horse.jpg')
+
+    # list things on port: netstat -tulpn | grep :8888
+    # kill things on port: fuser -k 8888/tcp
+    # kill things on port: (this was auto-filled) sudo kill -9 $(sudo lsof -t -i:8888)
+    input_blocks.launch(share=True,
+                        show_error=True,
+                        server_name='0.0.0.0',
+                        server_port=8888,
+                        debug=True,
+                        favicon_path='./astro_on_horse.jpg')
     # debug=True
     # input_blocks.integrate(wandb=wandb)
 
