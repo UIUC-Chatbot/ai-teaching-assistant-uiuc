@@ -11,6 +11,7 @@ import pinecone  # cloud-hosted vector database for context retrieval
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
 
+import prompting
 # for auto-gpu selection
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
@@ -18,16 +19,17 @@ sys.path.append("../data-generator")
 sys.path.append("../info-retrieval")
 sys.path.append("../info-retrieval/CLIP_for_PPTs")
 sys.path.append("../retreival-generation-system")
-import prompting
+from dotenv import load_dotenv
 
+# load API keys from globally-availabe .env file
+load_dotenv(dotenv_path=os.environ["SECRETS_FILEPATH"], override=True)
 # set huggingface cace to our base dir, so we all share it.
 os.environ['TRANSFORMERS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/transformers'
 os.environ['HF_DATASETS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/datasets'
 
 # for CLIP
 # import clip
-
-# import docquery, make sure to downgrade transformers to transformers==4.24.0, Pillow==9.2.0
+# For DocQuery, (MAYBE) make sure to downgrade transformers to transformers==4.24.0, Pillow==9.2.0.
 # from docquery import document, pipeline   # import docquery
 import contriever.contriever_final  # import Asmita's contriever
 # for gpt-3 completions
@@ -52,12 +54,13 @@ class TA_Pipeline:
                is_server=False,
                device_index_list=None,
                device=torch.device(f"cuda:{get_device_with_most_free_memory()}"),
-               use_clip=False):
+               use_clip=True):
 
     # init parameters
     self.user_question = ''
     self.max_text_length = None
     self.pinecone_index_name = 'uiuc-chatbot'  # uiuc-chatbot-v2
+    self.use_clip = use_clip
 
     # init parameters
     self.device = device
@@ -89,9 +92,6 @@ class TA_Pipeline:
     # Clip for image search
     self.LECTURE_SLIDES_DIR = os.path.join(os.getcwd(), "lecture_slides")
     # todo: assert lecture slides dir contains 1836 images.
-    if use_clip:
-      self.clip_search_class = None
-      self._load_clip()
 
     # Retriever model: contriever
     self.contriever = None
@@ -145,10 +145,18 @@ class TA_Pipeline:
     # self._load_et()
     # self._load_contriever()
     # self._load_doc_query()
-    
+
     self._load_reranking_ms_marco()
     self._load_t5()
     self._load_pinecone_vectorstore()
+
+    if self.use_clip:
+      self.clip_search_class = None
+      self._load_clip()
+    else:
+      print("CLIP IS MANUALLY DISABLED for speed.. REENABLE LATER. ")
+
+    # self._load_doc_query()
 
   def _load_clip(self):
     self.clip_search_class = ClipImage(path_of_ppt_folders=self.LECTURE_SLIDES_DIR,
@@ -192,30 +200,75 @@ class TA_Pipeline:
     # self.doc = document.load_document("../data-generator/raw_data/notes/Student_Notes.pdf")
     # load the tensor version of the student notebook
     self.doc = torch.load('/mnt/project/chatbotai/jerome/docquery_tensor/docquery_textbook_tensor.pt')
-    
 
   def _load_t5(self):
     self.t5_tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-xxl")
-
-    # for now, device 2 is set to 0 because hongyu2 is running things there.
     self.t5_model = T5ForConditionalGeneration.from_pretrained(
         "google/flan-t5-xxl",
-        device_map="auto",
-        torch_dtype=torch.bfloat16,
-    )
-    #max_memory=get_free_memory_dict())
+        # device_map="auto",
+        device_map="sequential",
+        torch_dtype=torch.float16,  # fp16 is better than BF16 on this older V100 card
+        max_memory=get_free_memory_dict())
+    # max_memory={
+    #     0: "28GiB",
+    #     1: "32GiB",
+    #     2: "32GiB",
+    #     3: "0GiB",
+    # }
     # self.t5_model = torch.compile(self.t5_model) # no real speedup :(
+
   def t5(self, text):
-    # todo: tune the correct cuda device number.
     inputs = self.t5_tokenizer(text, return_tensors="pt", truncation=True, padding=True).to("cuda:0")
     outputs = self.t5_model.generate(**inputs,
                                      max_new_tokens=256,
-                                     num_beams=3,
+                                     num_beams=10,
                                      early_stopping=True,
                                      temperature=1.5,
                                      repetition_penalty=2.5)
     single_answer = self.t5_tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
     return single_answer
+
+  def run_t5_completion(self,
+                        user_question: str = '',
+                        top_context_list: List = None,
+                        num_answers_generated: int = None,
+                        print_answers_to_stdout: bool = False):
+    """ Run T5 generator """
+    start_time = time.monotonic()
+    response_generation_times = []
+
+    if num_answers_generated is None:
+      num_answers_generated = self.num_answers_generated
+
+    response_list = []
+    assert num_answers_generated == len(top_context_list), "There must be a unique context for each generated answer. "
+
+    if print_answers_to_stdout:
+      print(f"⏰ T5 runtimes for SINGLE generations (in seconds)")
+    for i in range(num_answers_generated):
+      inner_time = time.monotonic()
+      PROMPT = f"Task: Open book QA. Question: {user_question} Context: {top_context_list[i]}. Answer:"
+      single_answer = self.t5(PROMPT)
+      response_list.append(single_answer)
+      yield single_answer
+
+      if print_answers_to_stdout:
+        # print("Single answer:", single_answer)
+        response_generation_times.append(time.monotonic() - inner_time)
+        inner_time = time.monotonic()
+        print(f"{response_generation_times[-1]:.2f}")
+    if print_answers_to_stdout:
+      print(f"{(time.monotonic() - start_time):.2f}")
+      print(f"⏰ ^^^ T5 runtime for {num_answers_generated} iters ^^^")
+      print("time per token: time_seconds / full_input_and_output_tokens:")
+      for i, ans in enumerate(response_list):
+        # print('\n---------------------------------NEXT---------------------------------\n')
+        full_input_and_output = f"Task: Open book QA. Question: {user_question} Context: {top_context_list[i]}. Answer: {ans}"
+        inputs = self.t5_tokenizer(full_input_and_output, return_tensors="pt", truncation=True, padding=True)
+        total_tokens = len(inputs.input_ids[0])
+        print(f"{(response_generation_times[i] / total_tokens):.4f}")
+        # print("Answer:", ans)
+      print('\n---------------------------------END---------------------------------\n')
 
   def T5_fewshot(self,
                  user_question: str,
@@ -278,37 +331,6 @@ class TA_Pipeline:
           return "GPT3 error: %s" % oops
         print('Error communicating with OpenAI:', oops)
         # todo: log to wandb.
-
-  def run_t5_completion(self,
-                        user_question: str = '',
-                        top_context_list: List = None,
-                        num_answers_generated: int = None,
-                        print_answers_to_stdout: bool = False):
-    """ Run T5 generator """
-    start_time = time.monotonic()
-
-    if num_answers_generated is None:
-      num_answers_generated = self.num_answers_generated
-
-    response_list = []
-    assert num_answers_generated == len(top_context_list), "There must be a unique context for each generated answer. "
-
-    for i in range(num_answers_generated):
-      inner_time = time.monotonic()
-      PROMPT = f"Task: Open book QA. Question: {user_question} Context: {top_context_list[i]}. Answer:"
-      single_answer = self.t5(PROMPT)
-      response_list.append(single_answer)
-      yield single_answer
-
-      if print_answers_to_stdout:
-        # print("Single answer:", single_answer)
-        print(f"⏰ T5 runtime for SINGLE generation: {(time.monotonic() - inner_time):.2f} seconds")
-        inner_time = time.monotonic()
-    if print_answers_to_stdout:
-      print(f"⏰ T5 runtime for {num_answers_generated} iters: {(time.monotonic() - start_time):.2f} seconds")
-      print("Generated Answers:")
-      print('\n---------------------------------NEXT---------------------------------\n'.join(response_list))
-    # return response_list
 
   def et_main(self, user_utter):
     qr_user_utter, topic, history = self.et.main(user_utter)

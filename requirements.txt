@@ -16,3 +16,4 @@ ctranslate2
 accelerate
 sentence-transformers
 gputil
+python-dotenv

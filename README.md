@@ -11,6 +11,16 @@ We use data from textbooks, lecture videos, and student QA forums (ordered, subj
 ### RLHF 
 My favorite contribution is the novel approach of semantic search retrieval during RLHF, using a dataset I iteratively produced by hiring a team of five Electrical Engineering students. That data is freely available on Huggingface here: https://huggingface.co/datasets/kastan/rlhf-qa-comparisons. We specifically cover the material necessary in the UIUC course ECE 120, intro to Electrical Engineering.
 
+# Evaluation
+We have a lot of models here. To evaluate which ones are helping, and which hurt, every time we push a new feature we re-run this evaluation. Our evaluation dataset of QA pairs is produced in house, written by expert electrical engineers. Using these questions, we generate answers with each of our models. Finally, we ask GPT-3 if the generated are "better" or "worse" than the ground truth answers written by humans. One limitation is that GPT-3 evaluates itself. GPT-3 nearly always thinks that GPT-3 is great, which is probably not true and a limitation of this evaluation method. Maybe we should run this same evaluation with Cohere's models to compare.
+
+Nevertheless, iterative evaluation was crucial to ensure our new features were making our system better.
+
+See the [full evalaution results here](https://github.com/UIUC-Chatbot/ai-teaching-assistant-uiuc/blob/main/Evaluation_Results.pdf). See the [evaluation code here](https://github.com/UIUC-Chatbot/ai-teaching-assistant-uiuc/blob/main/evaluation.py).
+
+<img width="837" alt="Bar chart showing GPT-3 is the best, with ChatGPT in 2nd place and OpenAssistant in 3rd place." src="https://user-images.githubusercontent.com/13607221/228375233-4f27f85d-10bc-4383-9eb7-41445dc71638.png">
+
+
 # Usage
 This project is fully open source, with the exception of commercial textbooks. **I highly encourage you to simply plug in your own [Pinecone database](https://www.pinecone.io/) of documents and use this in your work!**
 

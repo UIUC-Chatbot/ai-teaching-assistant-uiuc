@@ -1,28 +1,27 @@
 import sys
 import os
 
+# set your OpenAI API key here
+# os.environ["OPENAI_API_KEY"] = ""
 os.environ["TRANSFORMERS_CACHE"] = "/mnt/project/chatbotai/huggingface_cache/transformers"
-os.environ["PINECONE_API_KEY"] = "87823627-c1f4-48fe-9c36-3d19d3dd29bb"
-os.environ["OPENAI_API_KEY"] = "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"
-os.environ["GOOGLE_API_KEY"] = "AIzaSyDDTZVPprZSF4OrFKy0KcUfqe-ZBhtXTes"
-os.environ["SEARCH_ENGINE_ID"] = "a3e28df8e8a394231"
 os.environ["HF_DATASETS_CACHE"] = "~/.cache"
 
 sys.path.append("../human_data_review")
 
 from datetime import datetime
-import TA_gradio_ux
+# import TA_gradio_ux
 import pandas as pd
+import torch
 import json
 import argparse
 import numpy as np
 from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
 from rouge import Rouge 
-from datasets import load_metric
+import evaluate
 from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 def main_arg_parse():
@@ -34,6 +33,28 @@ def main_arg_parse():
   # parser.add_argument('--trt_path',type = str, default= None)
   args = parser.parse_args()
   return args
+
+def open_assistant(input_question):
+    """
+    Args: input user's question
+    Returns: output OpenAssistant generated answer
+    """
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    model = AutoModelForCausalLM.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b",
+    device_map="sequential",
+    max_memory={
+        0: "28GiB",
+        1: "32GiB",
+        2: "32GiB",
+        3: "0GiB"})
+    tokenizer = AutoTokenizer.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b")
+    prefix = "<prefix>You are a helpful teaching assistant, you will now help student to answer the question as correct and concise as possible</prefix>"
+    prompt = prefix + "<|prompter|>" + input_question + "<|endoftext|><|assistant|>"
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    tokens = model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=tokenizer.eos_token_id)
+    output = tokenizer.decode(tokens[0])
+    output = output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
+    return output
 
 def langchain_grader(eval_dataset):
     """
@@ -52,17 +73,16 @@ def langchain_grader(eval_dataset):
     eval_qa = []
     best_generated_answer = []
     # Create a prompt for generate GPT-3 grade label
-    _PROMPT_TEMPLATE = """You are an expert professor specialized in evaluating students' new answers comparing to their previous answers given the same questions.
+    _PROMPT_TEMPLATE = """You are an expert professor specialized in evaluating students' new answers comparing to the ground truth answers given the same questions.
                         You are referring the following question:
                         {query}
-                        Here is the previous answer:
+                        Here is the ground truth answer:
                         {answer}
                         You are evaluating the following new answer:
                         {result}
-                        Do you think the new answer is better than the previous answer? Label as "Better" or "Worse".
+                        Do you think the new answer is better than the ground truth answer? Label as "Better" or "Worse".
                         """
     PROMPT = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
-    
     
     # Process Huggingface Eval Dataset
     eval_dataframe = pd.DataFrame()
@@ -73,8 +93,15 @@ def langchain_grader(eval_dataset):
         temp_new_answer_dict = {}
         temp_q_dict['question'] = question
         temp_q_dict['answer'] = ans
-        generated_answers, _ = my_ta.question_answer(question, "")
-        temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
+        
+        # generate answer using OpenAssistant
+        generated_answer = open_assistant(question)
+        
+        # previous T5 question answer pipeline
+        # generated_answers, _ = my_ta.question_answer(question, "")
+        # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
+        
+        temp_new_answer_dict['text'] = generated_answer
         eval_qa.append(temp_q_dict)
         best_generated_answer.append(temp_new_answer_dict)
     
@@ -89,11 +116,12 @@ def langchain_grader(eval_dataset):
     new_eval_set = []
     # updated_eval_set = []
     for i, (q, a) in enumerate(zip(eval_dataframe['Question'], eval_dataframe['Answer'])):
-        new_generated_answer = best_generated_answer[i]['text'][0]
+        new_generated_answer = best_generated_answer[i]['text']
+        # new_generated_answer = best_generated_answer[i]['text'][0]
         grade_label = grader[i]['text'].replace('\n', '')
         temp_row = {}
         temp_row['Question'] = q
-        temp_row['Original-Answer'] = a
+        temp_row['Original-Ground-Truth'] = a
         temp_row['Chatbot-Generated-Answer'] = new_generated_answer
         temp_row['GPT-3-Evaluation'] = grade_label
         new_eval_set.append(temp_row)
@@ -104,7 +132,7 @@ def langchain_grader(eval_dataset):
     # Format the date and time as a string
     timestamp = now.strftime("%Y-%m-%d_%H-%M")
     # Create a file name with the date and time as a suffix
-    file_name = "/home/zhiweny2/chatbotai/jerome/human_data_review/" + "gpt3_graded_set_use_chatgpt_" + timestamp + ".json"
+    file_name = "/home/zhiweny2/chatbotai/jerome/human_data_review/" + "gpt3_graded_set_use_OpenAssistant_" + timestamp + ".json"
     # Write the new evaluation data (w/ two compared answers verision) to the JSON file
     # The format of the JSON file includes: question, original answer, chatbot generated answer, GPT-3 evaluation label
     # Change the path you want to save this file for human comparision only
@@ -127,8 +155,7 @@ def rouge_n_bleu_score(eval_dataset):
     # set the data points of evaluation to 30
     NUM_OF_DATAPOINTS_TO_EVALUATE = 30
     # eval_dataset = json.load(open(eval_set_path, 'r'))
-    # bleu_metric = evaluate.load('bleu')
-    bleu_metric = load_metric('bleu')
+    bleu_metric = evaluate.load('bleu')
     rouge = Rouge()
     rouge_score_list, bleu_score_list = [], []
     
@@ -154,8 +181,8 @@ def rouge_n_bleu_score(eval_dataset):
     
     
 if __name__ == '__main__':
-    args = main_arg_parse()
-    my_ta = TA_gradio_ux.TA_Gradio(args)
+    # args = main_arg_parse()
+    # my_ta = TA_gradio_ux.TA_Gradio(args)
     # modify your eval path here
     # eval_set_path = '/home/zhiweny2/chatbotai/jerome/human_data_review/gpt-3_semantic_search/1_top_quality.json'
     eval_dataset = load_dataset("kastan/rlhf-qa-comparisons")
