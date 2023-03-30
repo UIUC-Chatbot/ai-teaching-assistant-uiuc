@@ -436,10 +436,22 @@ class TA_Pipeline:
     Returns a list of images in all cases. 
     """
     imgs = self.clip_search_class.text_to_image_search(search_text=search_question, top_k_to_return=num_images_returned)
-
+ 
     img_path_list = []
     for img in imgs:
       # print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
+      img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
+
+    return img_path_list
+  
+  def reverse_img_search(self, img):
+    print('got user image')
+    print(type(img))
+    imgs = self.clip_search_class.image_to_images_search(img)
+
+    img_path_list = []
+    for img in imgs:
+        # print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
       img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
 
     return img_path_list

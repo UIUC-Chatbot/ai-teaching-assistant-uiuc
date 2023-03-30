@@ -74,9 +74,17 @@ class TA_Gradio():
     self.prompter = prompting.Prompt_LLMs()
     wandb.init(project=args.wandb_project, entity=args.wandb_entity)
 
-  def run_clip(self, user_question: str, num_images_returned: int = 4):
-    return self.ta.clip(user_question, num_images_returned)
+  
+  def run_clip(self, user_question: str,num_images_returned: int = 4):
+    # reverse image search
+    #gr.Image(,type="pil", label="[NOT IMPLEMENTED YET] -- Reverse Image Search (optional)", shape=(224, 224))
+    return self.ta.clip(user_question,num_images_returned)
 
+  def clip_img_search(self,img):
+    
+    print(type(img))
+    return self.ta.reverse_img_search(img) 
+  
   def log_results_to_wandb(self, user_question, generated_answers_list, final_scores, top_context_list, user_defined_context,
                            runtime) -> None:
     wandb.log({'runtime (seconds)': runtime})
@@ -232,7 +240,7 @@ class TA_Gradio():
               outputs=[],
           )
         # reverse image search
-        image = gr.Image(type="pil", label="[NOT IMPLEMENTED YET] -- Reverse Image Search (optional)", shape=(224, 224))
+      inp_image = gr.Image(type="pil", label="[NOT IMPLEMENTED YET] -- Reverse Image Search (optional)", shape=(224, 224))
       ''' Button and on-click function '''
       with gr.Row():
         # create a button with an orange background
@@ -290,7 +298,8 @@ class TA_Gradio():
         #                   inputs=[search_question, context, use_gpt3_checkbox, image],
         #                   outputs=[generated_answer, lec_gallery],
         #                   scroll_to_output=True)
-
+        #inp_image = gr.Image(type="pil", label="[NOT IMPLEMENTED YET] -- Reverse Image Search (optional)", shape=(224, 224))
+        inp_image.change(fn=self.clip_img_search,inputs=inp_image,outputs=lec_gallery)
         run.click(
             fn=self.load_text_answer,
             inputs=[search_question, context, use_gpt3_checkbox, use_equation_checkbox],
