@@ -467,8 +467,7 @@ class TA_Pipeline:
     return img_path_list
   
   def reverse_img_search(self, img):
-    print('got user image')
-    print(type(img))
+    
     imgs = self.clip_search_class.image_to_images_search(img)
 
     img_path_list = []

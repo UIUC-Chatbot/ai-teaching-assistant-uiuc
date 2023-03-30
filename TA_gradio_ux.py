@@ -83,8 +83,10 @@ class TA_Gradio():
 
   def clip_img_search(self,img):
     
-    print(type(img))
-    return self.ta.reverse_img_search(img) 
+    if img is None:
+      return []
+    else:
+      return self.ta.reverse_img_search(img) 
   
   def log_results_to_wandb(self, user_question, generated_answers_list, final_scores, top_context_list, user_defined_context,
                            runtime) -> None:
@@ -255,7 +257,7 @@ class TA_Gradio():
               outputs=[],
           )
         # reverse image search
-      inp_image = gr.Image(type="pil", label="[NOT IMPLEMENTED YET] -- Reverse Image Search (optional)", shape=(224, 224))
+        inp_image = gr.Image(type="pil", label="[NOT IMPLEMENTED YET] -- Reverse Image Search (optional)", shape=(224, 224))
       ''' Button and on-click function '''
       with gr.Row():
         # create a button with an orange background
@@ -342,8 +344,8 @@ class TA_Gradio():
     # kill things on port: (this was auto-filled) sudo kill -9 $(sudo lsof -t -i:8888)
     input_blocks.launch(share=True,
                         show_error=True,
-                        server_name='0.0.0.0',
-                        server_port=8888,
+                        #server_name='0.0.0.0',
+                        #server_port=8888,
                         debug=True,
                         favicon_path='./astro_on_horse.jpg')
     # debug=True
