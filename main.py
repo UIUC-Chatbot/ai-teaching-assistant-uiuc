@@ -60,7 +60,6 @@ class TA_Pipeline:
     # init parameters
     self.user_question = ''
     self.max_text_length = None
-    self.pinecone_index_name = 'uiuc-chatbot'  # uiuc-chatbot-v2
     self.use_clip = use_clip
 
     # init parameters
@@ -351,9 +350,10 @@ class TA_Pipeline:
 
   def _load_pinecone_vectorstore(self,):
     model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
-    pincecone_index = pinecone.Index("uiuc-chatbot-deduped")
+    pincecone_index = pinecone.Index(os.environ['PINECONE_INDEX_NAME'])
     embeddings = HuggingFaceEmbeddings(model_name=model_name)
-    pinecone.init(api_key=os.environ['PINECONE_API_KEY_NEW_ACCT'], environment="us-east4-gcp")
+    # pinecone.init(api_key=os.environ['PINECONE_API_KEY_NEW_ACCT'], environment="us-east4-gcp")
+    pinecone.init(api_key=os.environ['PINECONE_API_KEY'], environment=os.environ['PINECONE_ENVIRONMENT'])
     self.vectorstore = Pinecone(index=pincecone_index, embedding_function=embeddings.embed_query, text_key="text")
 
   def retrieve_contexts_from_pinecone(self, user_question: str, topk: int = None) -> List[Any]:

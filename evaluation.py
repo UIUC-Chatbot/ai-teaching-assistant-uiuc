@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 # set your OpenAI API key here
 # os.environ["OPENAI_API_KEY"] = ""
@@ -8,54 +8,60 @@ os.environ["HF_DATASETS_CACHE"] = "~/.cache"
 
 sys.path.append("../human_data_review")
 
+import argparse
+import json
 from datetime import datetime
+
+import evaluate
+import numpy as np
 # import TA_gradio_ux
 import pandas as pd
+import pinecone
 import torch
-import json
-import argparse
-import numpy as np
-from langchain.prompts import PromptTemplate
+from datasets import load_dataset
+from dotenv import load_dotenv
+from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.evaluation.qa import QAEvalChain
 from langchain.llms import OpenAI
-from rouge import Rouge
-import evaluate
-from datasets import load_dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import pinecone
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.prompts import PromptTemplate
 from langchain.vectorstores import Pinecone
-from dotenv import load_dotenv
+from rouge import Rouge
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
+
 load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 from main import TA_Pipeline
 
-# GLOBALS 
-ta_pipeline = TA_Pipeline(dont_load_any_cuda=False,use_clip=False)
+# GLOBALS
+ta_pipeline = TA_Pipeline(dont_load_any_cuda=True)
+
 
 def main_arg_parse():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model_weight', type=str, default=None)
-    # parser.add_argument('--device', type=str, default='cuda:0') # should ALWAYS be dynamically selected...
-    parser.add_argument('--wandb_entity', type=str, default='uiuc-ta-chatbot-team')
-    parser.add_argument('--wandb_project', type=str, default="First_TA_Chatbot")
-    # parser.add_argument('--trt_path',type = str, default= None)
-    args = parser.parse_args()
-    return args
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--model_weight', type=str, default=None)
+  # parser.add_argument('--device', type=str, default='cuda:0') # should ALWAYS be dynamically selected...
+  parser.add_argument('--wandb_entity', type=str, default='uiuc-ta-chatbot-team')
+  parser.add_argument('--wandb_project', type=str, default="First_TA_Chatbot")
+  # parser.add_argument('--trt_path',type = str, default= None)
+  args = parser.parse_args()
+  return args
 
 
 # "prefix_begin": "<|prefix_begin|>"
 # "prefix_end": "<|prefix_end|>"
 OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     PromptTemplate(
-        template='''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
+        template=
+        '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
         <|prompter|>Context: {context}
         Question: {question}<|endoftext|><|assistant|>
         ''',
         input_variables=["question", "context"],
     ),
     PromptTemplate(
-        template='''<|prefix_begin|>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.<|prefix_end|>
+        template=
+        '''<|prefix_begin|>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.<|prefix_end|>
         <|prompter|>Context: {context}
         Question: {question}
         Answer:<|endoftext|><|assistant|>
@@ -63,7 +69,8 @@ OPEN_ASSISTANT_PROMPTS_TO_TEST = [
         input_variables=["question", "context"],
     ),
     PromptTemplate(
-        template='''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
+        template=
+        '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
         <|prompter|>Context: {context}
         Please answer this question as accuratly as possible and with as much detail as possible.
         Question: {question}
@@ -73,43 +80,46 @@ OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     )
 ]
 
+
 def get_open_assistant_prompt(prompt_template: PromptTemplate, input_question: str):
-    """
-    Args: prompt_tempate: the template of the prompt
+  """
+  Args: prompt_tempate: the template of the prompt
           question: the question
-    Returns: the prompt for OpenAssistant
-    """
-    # call pinecone for contexts
-    context = ta_pipeline.retrieve_contexts_from_pinecone(input_question, topk=1)
-    prompt = prompt_template.format(question=input_question, context=context)
-    return prompt
+  Returns: the prompt for OpenAssistant
+  """
+  # call pinecone for contexts
+  context = ta_pipeline.retrieve_contexts_from_pinecone(input_question, topk=1)
+  prompt = prompt_template.format(question=input_question, context=context)
+  return prompt
 
 
 def open_assistant(prompt_template: PromptTemplate, input_question: str) -> str:
-    """
-    Args: input user's question
-    Returns: output OpenAssistant generated answer
-    """
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    model = AutoModelForCausalLM.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b",
-                                                device_map="sequential",
-                                                max_memory=get_free_memory_dict(leave_extra_memory_unused_gpu0_GiB=10))
-                                                # max_memory={
-                                                #     0: "24GiB",
-                                                #     1: "32GiB",
-                                                #     2: "32GiB",
-                                                #     3: "0GiB"
-                                                # })
-    tokenizer = AutoTokenizer.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b")
-    
-    prompt = get_open_assistant_prompt(prompt_template, input_question)
-    # prefix = "<prefix>You are a helpful teaching assistant, you will now help student to answer the question as correct and concise as possible</prefix>"
-    # prompt = prefix + "<|prompter|>" + input_question + "<|endoftext|><|assistant|>"
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
-    tokens = model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=tokenizer.eos_token_id)
-    output = tokenizer.decode(tokens[0])
-    output = output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
-    return output
+  """
+  Args: input user's question
+  Returns: output OpenAssistant generated answer
+  """
+  device = "cuda:0" if torch.cuda.is_available() else "cpu"
+  model = AutoModelForCausalLM.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b",
+                                               device_map="sequential",
+                                               max_memory=get_free_memory_dict(leave_extra_memory_unused_GiB=5,
+                                                                               leave_extra_memory_unused_gpu0_GiB=6))
+  # max_memory={
+  #     0: "24GiB",
+  #     1: "32GiB",
+  #     2: "32GiB",
+  #     3: "0GiB"
+  # })
+  tokenizer = AutoTokenizer.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b")
+
+  prompt = get_open_assistant_prompt(prompt_template, input_question)
+  print("PROPT as sent to model:", prompt)
+  # prefix = "<prefix>You are a helpful teaching assistant, you will now help student to answer the question as correct and concise as possible</prefix>"
+  # prompt = prefix + "<|prompter|>" + input_question + "<|endoftext|><|assistant|>"
+  inputs = tokenizer(prompt, return_tensors="pt").to(device)
+  tokens = model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=tokenizer.eos_token_id)
+  output = tokenizer.decode(tokens[0])
+  output = output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
+  return output
 
 
 def langchain_grader(eval_dataset, ta_pipeline):
@@ -144,24 +154,24 @@ def langchain_grader(eval_dataset, ta_pipeline):
   eval_dataframe = pd.DataFrame()
   eval_dataframe['prompt'] = eval_dataset['train']['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
   eval_dataframe['completion'] = eval_dataset['train']['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
-  
+
   for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
     for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
-        temp_q_dict = {}
-        temp_new_answer_dict = {}
-        temp_q_dict['question'] = question
-        temp_q_dict['answer'] = ans
+      temp_q_dict = {}
+      temp_new_answer_dict = {}
+      temp_q_dict['question'] = question
+      temp_q_dict['answer'] = ans
 
-        # generate answer using OpenAssistant
-        generated_answer = open_assistant(prompt_template, question)
+      # generate answer using OpenAssistant
+      generated_answer = open_assistant(prompt_template, question)
 
-        # previous T5 question answer pipeline
-        # generated_answers, _ = my_ta.question_answer(question, "")
-        # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
+      # previous T5 question answer pipeline
+      # generated_answers, _ = my_ta.question_answer(question, "")
+      # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
 
-        temp_new_answer_dict['text'] = generated_answer
-        eval_qa.append(temp_q_dict)
-        best_generated_answer.append(temp_new_answer_dict)
+      temp_new_answer_dict['text'] = generated_answer
+      eval_qa.append(temp_q_dict)
+      best_generated_answer.append(temp_new_answer_dict)
 
   # Load LangChain Evaluation pipeline
   eval_model = OpenAI(temperature=0)

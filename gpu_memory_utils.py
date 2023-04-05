@@ -54,4 +54,7 @@ def get_free_memory_dict(leave_extra_memory_unused_GiB: float = 2, leave_extra_m
   for device_id, memory_MiB in memory_map.items():
     memory_map[device_id] = f"{int(round(memory_MiB))}MiB"
 
+  memory_map['cpu'] = f"{int(round(50 * 1024))}MiB"
+  # memory_map['offload_folder'] = '/mnt/project/chatbotai/huggingface_cache'
+
   return memory_map
