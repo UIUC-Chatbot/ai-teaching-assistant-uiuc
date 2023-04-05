@@ -8,9 +8,9 @@ os.environ["HF_DATASETS_CACHE"] = "~/.cache"
 
 sys.path.append("../human_data_review")
 
-import argparse
 import json
 from datetime import datetime
+from typing import Any, List, Tuple
 
 import evaluate
 import numpy as np
@@ -28,9 +28,7 @@ from langchain.vectorstores import Pinecone
 from rouge import Rouge
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from gpu_memory_utils import (get_device_with_most_free_memory,
-                              get_free_memory_dict,
-                              get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 from main import TA_Pipeline
 
 load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
@@ -74,7 +72,7 @@ OPEN_ASSISTANT_PROMPTS_TO_TEST = [
 class Evaluator():
 
   def __init__(self) -> None:
-    self.ta_pipeline = TA_Pipeline(dont_load_any_cuda=True)
+    # self.ta_pipeline = TA_Pipeline(dont_load_any_cuda=True)
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     self.model = AutoModelForCausalLM.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b",
@@ -83,6 +81,32 @@ class Evaluator():
                                                                                       leave_extra_memory_unused_gpu0_GiB=6))
     self.tokenizer = AutoTokenizer.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b")
 
+    self.vectorstore = None
+    self._load_pinecone_vectorstore()
+
+  def _load_pinecone_vectorstore(self,):
+    model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
+    pincecone_index = pinecone.Index(os.environ['PINECONE_INDEX_NAME'])
+    embeddings = HuggingFaceEmbeddings(model_name=model_name)
+    # pinecone.init(api_key=os.environ['PINECONE_API_KEY_NEW_ACCT'], environment="us-east4-gcp")
+    pinecone.init(api_key=os.environ['PINECONE_API_KEY'], environment=os.environ['PINECONE_ENVIRONMENT'])
+    self.vectorstore = Pinecone(index=pincecone_index, embedding_function=embeddings.embed_query, text_key="text")
+
+  def retrieve_contexts_from_pinecone(self, user_question: str, topk: int = 3) -> List[str]:
+    ''' 
+    Invoke Pinecone for vector search. These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
+    Returns a list of LangChain Documents. They have properties: `doc.page_content`: str, doc.metadata['page_number']: int, doc.metadata['textbook_name']: str.
+    '''
+    print("WARNING USING STATIC CONTEXT")
+    return ["The finite state machine is a nice model of ECE!"]
+    # similarity search
+    top_context_list = self.vectorstore.similarity_search(user_question, k=topk)
+
+    # add the source info to the bottom of the context.
+    top_context_metadata = [f"Source: page {doc.metadata['page_number']} in {doc.metadata['textbook_name']}" for doc in top_context_list]
+    relevant_context_list = [f"{text.page_content}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
+    return relevant_context_list
+
   def get_open_assistant_prompt(self, prompt_template: PromptTemplate, input_question: str):
     """
     Args: prompt_tempate: the template of the prompt
@@ -90,7 +114,7 @@ class Evaluator():
     Returns: the prompt for OpenAssistant
     """
     # call pinecone for contexts
-    context = self.ta_pipeline.retrieve_contexts_from_pinecone(input_question, topk=1)
+    context = self.retrieve_contexts_from_pinecone(input_question, topk=1)[0]
     prompt = prompt_template.format(question=input_question, context=context)
     return prompt
 
