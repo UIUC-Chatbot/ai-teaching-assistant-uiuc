@@ -1,5 +1,7 @@
 # "Better than Google" Multi-Media QA & Search for Electrical Engineering at UIUC
 
+### We're live on HuggingFace: 👉 https://huggingface.co/spaces/kastan/ai-teaching-assistant 👈
+
 ## System diagram
 Our system runs 11 separate models in parallel for text/image retrieval, generation, moderation and ranking and still achieves a median 2-second response time.
 
