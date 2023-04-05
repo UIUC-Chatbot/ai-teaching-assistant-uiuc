@@ -52,7 +52,7 @@ class TA_Pipeline:
                trt_path=None,
                ct2_path=None,
                is_server=False,
-               device_index_list=None,
+               device_index_list=[],
                device=torch.device(f"cuda:{get_device_with_most_free_memory()}"),
                use_clip=True,
                dont_load_any_cuda=False):
