@@ -29,24 +29,11 @@ from rouge import Rouge
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
-
-load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 from main import TA_Pipeline
 
 # GLOBALS
+load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 ta_pipeline = TA_Pipeline(dont_load_any_cuda=True)
-
-
-def main_arg_parse():
-  parser = argparse.ArgumentParser()
-  parser.add_argument('--model_weight', type=str, default=None)
-  # parser.add_argument('--device', type=str, default='cuda:0') # should ALWAYS be dynamically selected...
-  parser.add_argument('--wandb_entity', type=str, default='uiuc-ta-chatbot-team')
-  parser.add_argument('--wandb_project', type=str, default="First_TA_Chatbot")
-  # parser.add_argument('--trt_path',type = str, default= None)
-  args = parser.parse_args()
-  return args
-
 
 # "prefix_begin": "<|prefix_begin|>"
 # "prefix_end": "<|prefix_end|>"
@@ -249,17 +236,10 @@ def rouge_n_bleu_score(eval_dataset):
   return overall_rouge_score, overall_bleu_score
 
 
-if __name__ == '__main__':
-  # args = main_arg_parse()
-  # my_ta = TA_gradio_ux.TA_Gradio(args)
-  # modify your eval path here
-  # eval_set_path = '/home/zhiweny2/chatbotai/jerome/human_data_review/gpt-3_semantic_search/1_top_quality.json'
-
+def main():
   eval_dataset = load_dataset("kastan/rlhf-qa-conditional-generation-v2")
-  # run the langchain eval pipeline and output two json files
   langchain_grader(eval_dataset, ta_pipeline)
 
-  # stash the following lines to print rouge and bleu scores
-  # rouge, bleu = rouge_n_bleu_score(eval_set_path)
-  # print("RougeL f1 score: %0.5f" % (rouge))
-  # print("Bleu1 score: %0.5f" % (bleu))
+
+if __name__ == '__main__':
+  main()
