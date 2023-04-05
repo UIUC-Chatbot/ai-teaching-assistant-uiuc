@@ -106,6 +106,7 @@ class TA_Pipeline:
 
     if dont_load_any_cuda:
       # only load pinecone
+      self.use_clip = False
       self._load_pinecone_vectorstore()
     else:
       # Load everything into cuda memory
