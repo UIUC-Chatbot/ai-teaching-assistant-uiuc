@@ -26,11 +26,12 @@ import pinecone
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores import Pinecone
 from dotenv import load_dotenv
-load_dotenv(dotenv_path=os.environ["SECRETS_FILEPATH"], override=True)
+from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
+load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 from main import TA_Pipeline
 
 # GLOBALS 
-ta_pipeline = TA_Pipeline(dont_load_any_cuda=False)
+ta_pipeline = TA_Pipeline(dont_load_any_cuda=False,use_clip=False)
 
 def main_arg_parse():
     parser = argparse.ArgumentParser()
@@ -42,6 +43,9 @@ def main_arg_parse():
     args = parser.parse_args()
     return args
 
+
+# "prefix_begin": "<|prefix_begin|>"
+# "prefix_end": "<|prefix_end|>"
 OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     PromptTemplate(
         template='''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
@@ -51,7 +55,7 @@ OPEN_ASSISTANT_PROMPTS_TO_TEST = [
         input_variables=["question", "context"],
     ),
     PromptTemplate(
-        template='''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
+        template='''<|prefix_begin|>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.<|prefix_end|>
         <|prompter|>Context: {context}
         Question: {question}
         Answer:<|endoftext|><|assistant|>
@@ -69,7 +73,6 @@ OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     )
 ]
 
-
 def get_open_assistant_prompt(prompt_template: PromptTemplate, input_question: str):
     """
     Args: prompt_tempate: the template of the prompt
@@ -77,7 +80,7 @@ def get_open_assistant_prompt(prompt_template: PromptTemplate, input_question: s
     Returns: the prompt for OpenAssistant
     """
     # call pinecone for contexts
-    context = ta_pipeline.retrieve_contexts_from_pinecone(input_question, topk = 1)
+    context = ta_pipeline.retrieve_contexts_from_pinecone(input_question, topk=1)
     prompt = prompt_template.format(question=input_question, context=context)
     return prompt
 
@@ -90,17 +93,18 @@ def open_assistant(prompt_template: PromptTemplate, input_question: str) -> str:
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     model = AutoModelForCausalLM.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b",
                                                 device_map="sequential",
-                                                max_memory={
-                                                    0: "28GiB",
-                                                    1: "32GiB",
-                                                    2: "32GiB",
-                                                    3: "0GiB"
-                                                })
+                                                max_memory=get_free_memory_dict(leave_extra_memory_unused_gpu0_GiB=10))
+                                                # max_memory={
+                                                #     0: "24GiB",
+                                                #     1: "32GiB",
+                                                #     2: "32GiB",
+                                                #     3: "0GiB"
+                                                # })
     tokenizer = AutoTokenizer.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b")
     
-    get_open_assistant_prompt(, input_question)
-    prefix = "<prefix>You are a helpful teaching assistant, you will now help student to answer the question as correct and concise as possible</prefix>"
-    prompt = prefix + "<|prompter|>" + input_question + "<|endoftext|><|assistant|>"
+    prompt = get_open_assistant_prompt(prompt_template, input_question)
+    # prefix = "<prefix>You are a helpful teaching assistant, you will now help student to answer the question as correct and concise as possible</prefix>"
+    # prompt = prefix + "<|prompter|>" + input_question + "<|endoftext|><|assistant|>"
     inputs = tokenizer(prompt, return_tensors="pt").to(device)
     tokens = model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=tokenizer.eos_token_id)
     output = tokenizer.decode(tokens[0])
@@ -119,7 +123,7 @@ def langchain_grader(eval_dataset, ta_pipeline):
     Change each file path you would like to evaluate or generate
     """
   # set the data points of evaluation to 30
-  NUM_OF_DATAPOINTS_TO_EVALUATE = 30
+  NUM_OF_DATAPOINTS_TO_EVALUATE = 3
 
   # eval_dataset = json.load(open(eval_set_path, 'r'))
   eval_qa = []
@@ -241,7 +245,7 @@ if __name__ == '__main__':
   # modify your eval path here
   # eval_set_path = '/home/zhiweny2/chatbotai/jerome/human_data_review/gpt-3_semantic_search/1_top_quality.json'
 
-  eval_dataset = load_dataset("kastan/rlhf-qa-comparisons")
+  eval_dataset = load_dataset("kastan/rlhf-qa-conditional-generation-v2")
   # run the langchain eval pipeline and output two json files
   langchain_grader(eval_dataset, ta_pipeline)
 
