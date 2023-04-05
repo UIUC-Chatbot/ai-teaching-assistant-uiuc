@@ -22,7 +22,7 @@ sys.path.append("../retreival-generation-system")
 from dotenv import load_dotenv
 
 # load API keys from globally-availabe .env file
-load_dotenv(dotenv_path=os.environ["SECRETS_FILEPATH"], override=True)
+load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 # set huggingface cace to our base dir, so we all share it.
 os.environ['TRANSFORMERS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/transformers'
 os.environ['HF_DATASETS_CACHE'] = '/mnt/project/chatbotai/huggingface_cache/datasets'
@@ -54,7 +54,8 @@ class TA_Pipeline:
                is_server=False,
                device_index_list=None,
                device=torch.device(f"cuda:{get_device_with_most_free_memory()}"),
-               use_clip=True):
+               use_clip=True,
+               dont_load_any_cuda=False):
 
     # init parameters
     self.user_question = ''
@@ -103,8 +104,12 @@ class TA_Pipeline:
     #prompting
     self.prompter = prompting.Prompt_LLMs()
 
-    # Load everything into cuda memory
-    self.load_modules()
+    if dont_load_any_cuda:
+      # only load pinecone
+      self._load_pinecone_vectorstore()
+    else:
+      # Load everything into cuda memory
+      self.load_modules()
 
   ######################################################################
   ########  Load all our different models ##############################
@@ -345,9 +350,9 @@ class TA_Pipeline:
 
   def _load_pinecone_vectorstore(self,):
     model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
-    pincecone_index = pinecone.Index("uiuc-chatbot")
+    pincecone_index = pinecone.Index("uiuc-chatbot-deduped")
     embeddings = HuggingFaceEmbeddings(model_name=model_name)
-    pinecone.init(api_key=os.environ['PINECONE_API_KEY'], environment="us-west1-gcp")
+    pinecone.init(api_key=os.environ['PINECONE_API_KEY_NEW_ACCT'], environment="us-east4-gcp")
     self.vectorstore = Pinecone(index=pincecone_index, embedding_function=embeddings.embed_query, text_key="text")
 
   def retrieve_contexts_from_pinecone(self, user_question: str, topk: int = None) -> List[Any]:
@@ -458,21 +463,21 @@ class TA_Pipeline:
     Returns a list of images in all cases. 
     """
     imgs = self.clip_search_class.text_to_image_search(search_text=search_question, top_k_to_return=num_images_returned)
- 
+
     img_path_list = []
     for img in imgs:
       # print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
       img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
 
     return img_path_list
-  
+
   def reverse_img_search(self, img):
-    
+
     imgs = self.clip_search_class.image_to_images_search(img)
 
     img_path_list = []
     for img in imgs:
-        # print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
+      # print("img result path:", self.LECTURE_SLIDES_DIR, img[0], img[1])
       img_path_list.append(os.path.join(self.LECTURE_SLIDES_DIR, img[0], img[1]))
 
     return img_path_list
