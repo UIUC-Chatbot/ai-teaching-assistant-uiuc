@@ -12,13 +12,13 @@ import json
 from datetime import datetime
 from typing import Any, List, Tuple
 
+import datasets
 import evaluate
 import numpy as np
 # import TA_gradio_ux
 import pandas as pd
 import pinecone
 import torch
-from datasets import load_dataset
 from dotenv import load_dotenv
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.evaluation.qa import QAEvalChain
@@ -35,27 +35,27 @@ from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_
 load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 
 # GLOBALS
-NUM_OF_DATAPOINTS_TO_EVALUATE = 3
+NUM_OF_DATAPOINTS_TO_EVALUATE = 100
 
 OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     PromptTemplate(
         template=
         '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
-<|prompter|>Context: {context}
+<|prompter|>Context: {context}. 
 Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     ),
     PromptTemplate(
         template=
         '''<|prefix_begin|>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.<|prefix_end|>
-<|prompter|>Context: {context}
+<|prompter|>Context: {context}. 
 Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     ),
     PromptTemplate(
         template=
-        '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
-<|prompter|>Context: {context}
+        '''<prefix>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Do not include any irrelevant information. Give examples.</prefix>
+<|prompter|>Context: {context}. 
 Please answer this question as accuratly as possible and with as much detail as possible.
 Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
@@ -94,15 +94,12 @@ class Evaluator():
     
     These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
     '''
-    # print("WARNING USING STATIC CONTEXT")
-    # return ["The finite state machine is a nice model of ECE!"]
-    # similarity search
     top_context_list = self.vectorstore.similarity_search(user_question, k=topk)
 
     # add the source info to the bottom of the context.
-    top_context_metadata = [f"Source: page {doc.metadata['page_number']} in {doc.metadata['textbook_name']}" for doc in top_context_list]
-    relevant_context_list = [f"{text.page_content}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
-    return relevant_context_list
+    # top_context_metadata = [f"Source: page {doc.metadata['page_number']} in {doc.metadata['textbook_name']}" for doc in top_context_list]
+    # relevant_context_list = [f"{text.page_content}. {meta}" for text, meta in zip(top_context_list, top_context_metadata)]
+    return top_context_list
 
   def get_open_assistant_prompt(self, prompt_template: PromptTemplate, input_question: str):
     """
@@ -110,7 +107,6 @@ class Evaluator():
             question: the question
     Returns: the prompt for OpenAssistant
     """
-    # call pinecone for contexts
     context = self.retrieve_contexts_from_pinecone(input_question, topk=1)[0]
     prompt = prompt_template.format(question=input_question, context=context)
     return prompt
@@ -122,7 +118,7 @@ class Evaluator():
     """
 
     prompt = self.get_open_assistant_prompt(prompt_template, input_question).replace('\n', '')
-    print("PROMPT as sent to model:", prompt)
+    # print("PROMPT as sent to model:", prompt)
 
     inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:0")  # always 0 for .generate()
     tokens = self.model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=self.tokenizer.eos_token_id)
@@ -130,7 +126,21 @@ class Evaluator():
     output = temp_output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
     return output
 
-  def langchain_grader(self, eval_dataset):
+  def main_eval_loop(self, eval_dataset: datasets.Dataset):
+    '''
+    Main driver of evaluation loop. Currently just evalauting OPEN_ASSISTANT_PROMPTS_TO_TEST.
+    Param: dataset 
+    '''
+    points_to_evaluate = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']) - 1)
+    eval_dataframe = pd.DataFrame()
+    eval_dataframe['prompt'] = eval_dataset['prompt'][:points_to_evaluate]
+    eval_dataframe['completion'] = eval_dataset['completion'][:points_to_evaluate]
+
+    # 1 eval per experimental condition.
+    for i, prompt_template in enumerate(OPEN_ASSISTANT_PROMPTS_TO_TEST):
+      self.langchain_grader(eval_dataframe=eval_dataframe, prompt_template=prompt_template, eval_name=f'OAsst_prompt_{i}')
+
+  def langchain_grader(self, eval_dataframe: pd.DataFrame, prompt_template: PromptTemplate, eval_name: str = 'default_eval') -> None:
     """
       Args: evaluation set path: dataset path for GPT-3 evaluation
 
@@ -141,10 +151,29 @@ class Evaluator():
       Change each file path you would like to evaluate or generate
       """
 
-    # eval_dataset = json.load(open(eval_set_path, 'r'))
     eval_qa = []
     best_generated_answer = []
     # Create a prompt for generate GPT-3 grade label
+
+    for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
+      temp_q_dict = {}
+      temp_new_answer_dict = {}
+      temp_q_dict['question'] = question
+      temp_q_dict['answer'] = ans
+
+      # generate answer using OpenAssistant
+      generated_answer = self.open_assistant(prompt_template, question)
+      # print("\nGenerated answer:")
+      # print(generated_answer)
+      # previous T5 question answer pipeline
+      # generated_answers, _ = self.ta_pipeline.question_answer(question, "")
+      # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
+
+      temp_new_answer_dict['text'] = generated_answer
+      eval_qa.append(temp_q_dict)
+      best_generated_answer.append(temp_new_answer_dict)
+
+    # RUN LangChain GPT-3 evaluation
     _PROMPT_TEMPLATE = """You are an expert professor specialized in evaluating students' new answers comparing to the ground truth answers given the same questions.
                           You are referring the following question:
                           {query}
@@ -155,33 +184,6 @@ class Evaluator():
                           Do you think the new answer is better than the ground truth answer? Label as "Better" or "Worse".
                           """
     gpt3_eval_prompt = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
-
-    # Process Huggingface Eval Dataset
-    eval_dataframe = pd.DataFrame()
-    points_to_evaluate = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
-    eval_dataframe['prompt'] = eval_dataset['prompt'][:points_to_evaluate]
-    eval_dataframe['completion'] = eval_dataset['completion'][:points_to_evaluate]
-
-    for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
-      for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
-        temp_q_dict = {}
-        temp_new_answer_dict = {}
-        temp_q_dict['question'] = question
-        temp_q_dict['answer'] = ans
-
-        # generate answer using OpenAssistant
-        generated_answer = self.open_assistant(prompt_template, question)
-        print("\nGenerated answer:")
-        print(generated_answer)
-        # previous T5 question answer pipeline
-        # generated_answers, _ = self.ta_pipeline.question_answer(question, "")
-        # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
-
-        temp_new_answer_dict['text'] = generated_answer
-        eval_qa.append(temp_q_dict)
-        best_generated_answer.append(temp_new_answer_dict)
-
-    # Load LangChain Evaluation pipeline
     eval_model = OpenAI(temperature=0)
     evalchain = QAEvalChain.from_llm(llm=eval_model, prompt=gpt3_eval_prompt)
     # Grade the new model generated answer compared to the original one
@@ -190,6 +192,8 @@ class Evaluator():
     # Add the new evaluation results to a new evaluation set (w/ two answers version)
     # and the original evaluation set (cover the worse answers)
     new_eval_set = []
+    num_better = 0
+    num_worse = 0
     # updated_eval_set = []
     for i, (q, a) in enumerate(zip(eval_dataframe['prompt'], eval_dataframe['completion'])):
       new_generated_answer = best_generated_answer[i]['text']
@@ -202,10 +206,18 @@ class Evaluator():
       temp_row['GPT-3-Evaluation'] = grade_label
       new_eval_set.append(temp_row)
 
+      # just for quick debugging.
+      if grade_label == 'Better':
+        num_better += 1
+      elif grade_label == 'Worse':
+        num_worse += 1
+
+    print(f"📊 Fraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}")
+
     # Write the new evaluation data to the JSON file
     now = datetime.now()
     timestamp = now.strftime("%Y-%m-%d_%H-%M")
-    file_name = "./eval_results/" + "gpt3_graded_set_use_OpenAssistant_" + timestamp + ".json"
+    file_name = "./eval_results/" + eval_name + "_" + timestamp + ".json"
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     # Write the new evaluation data (w/ two compared answers verision) to the JSON file
     # The format of the JSON file includes: question, original answer, chatbot generated answer, GPT-3 evaluation label
@@ -251,12 +263,12 @@ class Evaluator():
 
 
 def main():
-  eval_dataset = load_dataset(
+  eval_dataset = datasets.load_dataset(
       "kastan/rlhf-qa-conditional-generation-v2",
       split="train+valid",
   )
   evaluator = Evaluator()
-  evaluator.langchain_grader(eval_dataset)
+  evaluator.main_eval_loop(eval_dataset)
 
 
 if __name__ == '__main__':
