@@ -1,0 +1,27 @@
+# These are the prompts that will be used to evaluate the assistant's ability to answer factual questions.
+# 0, 1, 2
+
+OPEN_ASSISTANT_PROMPTS_TO_TEST = [
+    PromptTemplate(
+        template=
+        '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
+<|prompter|>Context: {context}. 
+Question: {question}<|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    ),
+    PromptTemplate(
+        template=
+        '''<|prefix_begin|>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.<|prefix_end|>
+<|prompter|>Context: {context}. 
+Question: {question}<|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    ),
+    PromptTemplate(
+        template=
+        '''<prefix>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Do not include any irrelevant information. Give examples.</prefix>
+<|prompter|>Context: {context}. 
+Please answer this question as accuratly as possible and with as much detail as possible.
+Question: {question}<|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    )
+]
