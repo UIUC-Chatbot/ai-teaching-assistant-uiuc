@@ -28,7 +28,9 @@ from langchain.vectorstores import Pinecone
 from rouge import Rouge
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory,
+                              get_free_memory_dict,
+                              get_gpu_ids_with_sufficient_memory)
 
 # from main import TA_Pipeline
 
@@ -251,7 +253,7 @@ class Evaluator():
 
 
 def main():
-  eval_dataset = load_dataset("kastan/rlhf-qa-conditional-generation-v2")
+  eval_dataset = load_dataset("kastan/rlhf-qa-conditional-generation-v2", split="train+valid",)
   evaluator = Evaluator()
   evaluator.langchain_grader(eval_dataset)
 
