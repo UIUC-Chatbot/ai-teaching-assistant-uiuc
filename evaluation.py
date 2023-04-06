@@ -29,6 +29,7 @@ from rouge import Rouge
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
+
 # from main import TA_Pipeline
 
 load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
@@ -78,17 +79,20 @@ class Evaluator():
     self._load_pinecone_vectorstore()
 
   def _load_pinecone_vectorstore(self):
-    model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
-    pincecone_index = pinecone.Index(os.environ['PINECONE_INDEX_NAME'])
-    embeddings = HuggingFaceEmbeddings(model_name=model_name)
-    # pinecone.init(api_key=os.environ['PINECONE_API_KEY_NEW_ACCT'], environment="us-east4-gcp")
     pinecone.init(api_key=os.environ['PINECONE_API_KEY'], environment=os.environ['PINECONE_ENVIRONMENT'])
+    pincecone_index = pinecone.Index(os.environ['PINECONE_INDEX_NAME'])
+    embeddings = HuggingFaceEmbeddings(model_name="intfloat/e5-large")  # best text embedding model. 1024 dims.
     self.vectorstore = Pinecone(index=pincecone_index, embedding_function=embeddings.embed_query, text_key="text")
 
   def retrieve_contexts_from_pinecone(self, user_question: str, topk: int = 3) -> List[str]:
     ''' 
-    Invoke Pinecone for vector search. These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
-    Returns a list of LangChain Documents. They have properties: `doc.page_content`: str, doc.metadata['page_number']: int, doc.metadata['textbook_name']: str.
+    Call Pinecone for relevant document contexts.
+    
+    Args: prompt_tempate: the template of the prompt
+            question: the question
+    Returns: List of strings, each is a context. 
+    
+    These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
     '''
     # print("WARNING USING STATIC CONTEXT")
     # return ["The finite state machine is a nice model of ECE!"]
@@ -117,10 +121,10 @@ class Evaluator():
     Returns: output OpenAssistant generated answer
     """
 
-    prompt = self.get_open_assistant_prompt(prompt_template, input_question).replace('\n','')
+    prompt = self.get_open_assistant_prompt(prompt_template, input_question).replace('\n', '')
     print("PROMPT as sent to model:", prompt)
 
-    inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:0")  # always 0 or .generate()
+    inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:0")  # always 0 for .generate()
     tokens = self.model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=self.tokenizer.eos_token_id)
     temp_output = self.tokenizer.decode(tokens[0])
     output = temp_output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
@@ -154,28 +158,28 @@ class Evaluator():
 
     # Process Huggingface Eval Dataset
     eval_dataframe = pd.DataFrame()
+    NUM_OF_DATAPOINTS_TO_EVALUATE = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
     eval_dataframe['prompt'] = eval_dataset['train']['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
     eval_dataframe['completion'] = eval_dataset['train']['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
 
-    # for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
-    prompt_template = OPEN_ASSISTANT_PROMPTS_TO_TEST[0]
-    for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
-      temp_q_dict = {}
-      temp_new_answer_dict = {}
-      temp_q_dict['question'] = question
-      temp_q_dict['answer'] = ans
+    for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
+      for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
+        temp_q_dict = {}
+        temp_new_answer_dict = {}
+        temp_q_dict['question'] = question
+        temp_q_dict['answer'] = ans
 
-      # generate answer using OpenAssistant
-      generated_answer = self.open_assistant(prompt_template, question)
-      print("\nGenerated answer:")
-      print(generated_answer)
-      # previous T5 question answer pipeline
-      # generated_answers, _ = self.ta_pipeline.question_answer(question, "")
-      # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
+        # generate answer using OpenAssistant
+        generated_answer = self.open_assistant(prompt_template, question)
+        print("\nGenerated answer:")
+        print(generated_answer)
+        # previous T5 question answer pipeline
+        # generated_answers, _ = self.ta_pipeline.question_answer(question, "")
+        # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
 
-      temp_new_answer_dict['text'] = generated_answer
-      eval_qa.append(temp_q_dict)
-      best_generated_answer.append(temp_new_answer_dict)
+        temp_new_answer_dict['text'] = generated_answer
+        eval_qa.append(temp_q_dict)
+        best_generated_answer.append(temp_new_answer_dict)
 
     # Load LangChain Evaluation pipeline
     eval_model = OpenAI(temperature=0)
@@ -199,39 +203,35 @@ class Evaluator():
       new_eval_set.append(temp_row)
 
     # Write the new evaluation data to the JSON file
-    # Get the current date and time
     now = datetime.now()
-    # Format the date and time as a string
     timestamp = now.strftime("%Y-%m-%d_%H-%M")
-    # Create a file name with the date and time as a suffix
-    file_name = "/home/zhiweny2/chatbotai/jerome/human_data_review/" + "gpt3_graded_set_use_OpenAssistant_" + timestamp + ".json"
+    file_name = "./eval_results/" + "gpt3_graded_set_use_OpenAssistant_" + timestamp + ".json"
+    os.makedirs(os.path.dirname(file_name), exist_ok=True)
     # Write the new evaluation data (w/ two compared answers verision) to the JSON file
     # The format of the JSON file includes: question, original answer, chatbot generated answer, GPT-3 evaluation label
-    # Change the path you want to save this file for human comparision only
     with open(file_name, 'w', encoding='utf-8') as f:
       json.dump(new_eval_set, f, ensure_ascii=False, indent=4)
-    # Write the updated evaluation data to the JSON file
-    # Change the path you want to save this updated eval set for further evaluation
-    # with open('/home/zhiweny2/chatbotai/jerome/human_data_review/new_eval_set.json', 'w', encoding='utf-8') as f:
-    #     json.dump(updated_eval_set, f, ensure_ascii=False, indent=4)
 
   def rouge_n_bleu_score(self, eval_dataset):
     """
-      Args:user_question (str): questions from the human filtered eval set
+    DEPRICATED -- less useful than the GPT-3 evaluation.
+    
+    Args:user_question (str): questions from the human filtered eval set
 
-      Returns: the evaluation score for each user's question compared to the human labeled answers
-      
-      overall_rouge_score: the average RougeL f1 score for all the questions in eval set
-      overall_bleu_score: the average Bleu1 score for all the questions in eval set
-      """
+    Returns: the evaluation score for each user's question compared to the human labeled answers
+    
+    overall_rouge_score: the average RougeL f1 score for all the questions in eval set
+    overall_bleu_score: the average Bleu1 score for all the questions in eval set
+    """
     # eval_dataset = json.load(open(eval_set_path, 'r'))
     bleu_metric = evaluate.load('bleu')
     rouge = Rouge()
     rouge_score_list, bleu_score_list = [], []
 
     eval_dataframe = pd.DataFrame()
-    eval_dataframe['prompt'] = eval_dataset['train']['Question'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
-    eval_dataframe['completion'] = eval_dataset['train']['Chosen'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
+    NUM_OF_DATAPOINTS_TO_EVALUATE = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
+    eval_dataframe['prompt'] = eval_dataset['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
+    eval_dataframe['completion'] = eval_dataset['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
 
     for i, (question, answer) in enumerate(zip(eval_dataframe['prompt'], eval_dataframe['completion'])):
       generated_answers, _ = self.ta_pipeline.question_answer(question, "")
