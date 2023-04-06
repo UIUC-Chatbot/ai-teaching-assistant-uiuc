@@ -29,41 +29,34 @@ from rouge import Rouge
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
-from main import TA_Pipeline
+# from main import TA_Pipeline
 
 load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 
 # GLOBALS
 NUM_OF_DATAPOINTS_TO_EVALUATE = 3
 
-# "prefix_begin": "<|prefix_begin|>"
-# "prefix_end": "<|prefix_end|>"
 OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     PromptTemplate(
         template=
         '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
-        <|prompter|>Context: {context}
-        Question: {question}<|endoftext|><|assistant|>
-        ''',
+<|prompter|>Context: {context}
+Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     ),
     PromptTemplate(
         template=
         '''<|prefix_begin|>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.<|prefix_end|>
-        <|prompter|>Context: {context}
-        Question: {question}
-        Answer:<|endoftext|><|assistant|>
-        ''',
+<|prompter|>Context: {context}
+Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     ),
     PromptTemplate(
         template=
         '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
-        <|prompter|>Context: {context}
-        Please answer this question as accuratly as possible and with as much detail as possible.
-        Question: {question}
-        Answer:<|endoftext|><|assistant|>
-        ''',
+<|prompter|>Context: {context}
+Please answer this question as accuratly as possible and with as much detail as possible.
+Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     )
 ]
@@ -74,7 +67,7 @@ class Evaluator():
   def __init__(self) -> None:
     # self.ta_pipeline = TA_Pipeline(dont_load_any_cuda=True)
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    # device = "cuda:0" if torch.cuda.is_available() else "cpu"
     self.model = AutoModelForCausalLM.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b",
                                                       device_map="sequential",
                                                       max_memory=get_free_memory_dict(leave_extra_memory_unused_GiB=5,
@@ -84,7 +77,7 @@ class Evaluator():
     self.vectorstore = None
     self._load_pinecone_vectorstore()
 
-  def _load_pinecone_vectorstore(self,):
+  def _load_pinecone_vectorstore(self):
     model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
     pincecone_index = pinecone.Index(os.environ['PINECONE_INDEX_NAME'])
     embeddings = HuggingFaceEmbeddings(model_name=model_name)
@@ -97,8 +90,8 @@ class Evaluator():
     Invoke Pinecone for vector search. These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
     Returns a list of LangChain Documents. They have properties: `doc.page_content`: str, doc.metadata['page_number']: int, doc.metadata['textbook_name']: str.
     '''
-    print("WARNING USING STATIC CONTEXT")
-    return ["The finite state machine is a nice model of ECE!"]
+    # print("WARNING USING STATIC CONTEXT")
+    # return ["The finite state machine is a nice model of ECE!"]
     # similarity search
     top_context_list = self.vectorstore.similarity_search(user_question, k=topk)
 
@@ -124,13 +117,13 @@ class Evaluator():
     Returns: output OpenAssistant generated answer
     """
 
-    prompt = self.get_open_assistant_prompt(prompt_template, input_question)
-    print("PROPT as sent to model:", prompt)
+    prompt = self.get_open_assistant_prompt(prompt_template, input_question).replace('\n','')
+    print("PROMPT as sent to model:", prompt)
 
     inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:0")  # always 0 or .generate()
     tokens = self.model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=self.tokenizer.eos_token_id)
-    output = self.tokenizer.decode(tokens[0])
-    output = output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
+    temp_output = self.tokenizer.decode(tokens[0])
+    output = temp_output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
     return output
 
   def langchain_grader(self, eval_dataset):
@@ -157,34 +150,36 @@ class Evaluator():
                           {result}
                           Do you think the new answer is better than the ground truth answer? Label as "Better" or "Worse".
                           """
-    PROMPT = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
+    gpt3_eval_prompt = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
 
     # Process Huggingface Eval Dataset
     eval_dataframe = pd.DataFrame()
     eval_dataframe['prompt'] = eval_dataset['train']['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
     eval_dataframe['completion'] = eval_dataset['train']['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
 
-    for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
-      for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
-        temp_q_dict = {}
-        temp_new_answer_dict = {}
-        temp_q_dict['question'] = question
-        temp_q_dict['answer'] = ans
+    # for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
+    prompt_template = OPEN_ASSISTANT_PROMPTS_TO_TEST[0]
+    for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
+      temp_q_dict = {}
+      temp_new_answer_dict = {}
+      temp_q_dict['question'] = question
+      temp_q_dict['answer'] = ans
 
-        # generate answer using OpenAssistant
-        generated_answer = self.open_assistant(prompt_template, question)
+      # generate answer using OpenAssistant
+      generated_answer = self.open_assistant(prompt_template, question)
+      print("\nGenerated answer:")
+      print(generated_answer)
+      # previous T5 question answer pipeline
+      # generated_answers, _ = self.ta_pipeline.question_answer(question, "")
+      # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
 
-        # previous T5 question answer pipeline
-        # generated_answers, _ = self.ta_pipeline.question_answer(question, "")
-        # temp_new_answer_dict['text'] = generated_answers["Answer"].head(1).values
-
-        temp_new_answer_dict['text'] = generated_answer
-        eval_qa.append(temp_q_dict)
-        best_generated_answer.append(temp_new_answer_dict)
+      temp_new_answer_dict['text'] = generated_answer
+      eval_qa.append(temp_q_dict)
+      best_generated_answer.append(temp_new_answer_dict)
 
     # Load LangChain Evaluation pipeline
     eval_model = OpenAI(temperature=0)
-    evalchain = QAEvalChain.from_llm(llm=eval_model, prompt=PROMPT)
+    evalchain = QAEvalChain.from_llm(llm=eval_model, prompt=gpt3_eval_prompt)
     # Grade the new model generated answer compared to the original one
     grader = evalchain.evaluate(eval_qa, best_generated_answer, question_key="question", answer_key="answer", prediction_key="text")
 
@@ -229,8 +224,6 @@ class Evaluator():
       overall_rouge_score: the average RougeL f1 score for all the questions in eval set
       overall_bleu_score: the average Bleu1 score for all the questions in eval set
       """
-    # set the data points of evaluation to 30
-    NUM_OF_DATAPOINTS_TO_EVALUATE = 30
     # eval_dataset = json.load(open(eval_set_path, 'r'))
     bleu_metric = evaluate.load('bleu')
     rouge = Rouge()
