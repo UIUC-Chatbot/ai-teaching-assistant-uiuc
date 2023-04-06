@@ -158,9 +158,9 @@ class Evaluator():
 
     # Process Huggingface Eval Dataset
     eval_dataframe = pd.DataFrame()
-    NUM_OF_DATAPOINTS_TO_EVALUATE = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
-    eval_dataframe['prompt'] = eval_dataset['train']['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
-    eval_dataframe['completion'] = eval_dataset['train']['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
+    points_to_evaluate = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
+    eval_dataframe['prompt'] = eval_dataset['train']['prompt'][:points_to_evaluate]
+    eval_dataframe['completion'] = eval_dataset['train']['completion'][:points_to_evaluate]
 
     for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
       for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
@@ -229,7 +229,7 @@ class Evaluator():
     rouge_score_list, bleu_score_list = [], []
 
     eval_dataframe = pd.DataFrame()
-    NUM_OF_DATAPOINTS_TO_EVALUATE = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
+    points_to_evaluate = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
     eval_dataframe['prompt'] = eval_dataset['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
     eval_dataframe['completion'] = eval_dataset['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
 
