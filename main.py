@@ -349,17 +349,20 @@ class TA_Pipeline:
   ############################################################################
 
   def _load_pinecone_vectorstore(self,):
-    model_name = "intfloat/e5-large"  # best text embedding model. 1024 dims.
-    pincecone_index = pinecone.Index(os.environ['PINECONE_INDEX_NAME'])
-    embeddings = HuggingFaceEmbeddings(model_name=model_name)
-    # pinecone.init(api_key=os.environ['PINECONE_API_KEY_NEW_ACCT'], environment="us-east4-gcp")
     pinecone.init(api_key=os.environ['PINECONE_API_KEY'], environment=os.environ['PINECONE_ENVIRONMENT'])
+    pincecone_index = pinecone.Index(os.environ['PINECONE_INDEX_NAME'])
+    embeddings = HuggingFaceEmbeddings(model_name="intfloat/e5-large")  # best text embedding model. 1024 dims.
     self.vectorstore = Pinecone(index=pincecone_index, embedding_function=embeddings.embed_query, text_key="text")
 
   def retrieve_contexts_from_pinecone(self, user_question: str, topk: int = None) -> List[Any]:
     ''' 
-    Invoke Pinecone for vector search. These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
-    Returns a list of LangChain Documents. They have properties: `doc.page_content`: str, doc.metadata['page_number']: int, doc.metadata['textbook_name']: str.
+    Call Pinecone for relevant document contexts.
+    
+    Args: prompt_tempate: the template of the prompt
+            question: the question
+    Returns: List of strings, each is a context. 
+    
+    These vector databases are created in the notebook `data_formatting_patel.ipynb` and `data_formatting_student_notes.ipynb`.
     '''
     if topk is None:
       topk = self.num_answers_generated
