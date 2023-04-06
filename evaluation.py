@@ -28,9 +28,7 @@ from langchain.vectorstores import Pinecone
 from rouge import Rouge
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from gpu_memory_utils import (get_device_with_most_free_memory,
-                              get_free_memory_dict,
-                              get_gpu_ids_with_sufficient_memory)
+from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
 # from main import TA_Pipeline
 
@@ -161,8 +159,8 @@ class Evaluator():
     # Process Huggingface Eval Dataset
     eval_dataframe = pd.DataFrame()
     points_to_evaluate = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
-    eval_dataframe['prompt'] = eval_dataset['train']['prompt'][:points_to_evaluate]
-    eval_dataframe['completion'] = eval_dataset['train']['completion'][:points_to_evaluate]
+    eval_dataframe['prompt'] = eval_dataset['prompt'][:points_to_evaluate]
+    eval_dataframe['completion'] = eval_dataset['completion'][:points_to_evaluate]
 
     for prompt_template in OPEN_ASSISTANT_PROMPTS_TO_TEST:
       for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
@@ -253,7 +251,10 @@ class Evaluator():
 
 
 def main():
-  eval_dataset = load_dataset("kastan/rlhf-qa-conditional-generation-v2", split="train+valid",)
+  eval_dataset = load_dataset(
+      "kastan/rlhf-qa-conditional-generation-v2",
+      split="train+valid",
+  )
   evaluator = Evaluator()
   evaluator.langchain_grader(eval_dataset)
 
