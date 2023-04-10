@@ -205,20 +205,22 @@ class Evaluator():
       best_generated_answer.append(temp_new_answer_dict)
 
     # RUN LangChain GPT-3 evaluation
-    _PROMPT_TEMPLATE = """You are an expert professor specialized in evaluating students' new answers comparing to the ground truth answers given the same questions.
-                          You are referring the following question:
+    _PROMPT_TEMPLATE = """You are an expert teaching assistant specialized in evaluating two students' answers in response to the instructor's question. 
+                          You are referring to the following question:
                           {query}
-                          Here is the ground truth answer:
-                          {answer}
-                          You are evaluating the following new answer:
-                          {result}
-                          Do you think the new answer is better than the ground truth answer? Label as "Better" or "Worse".
+                          Here is the answer from student 1:
+                          {answer_1}
+                          Here is the answer from student 2:
+                          {answer_2}
+                          Please consider the relevance, accuracy, and fluency of their responses. The answer which is concise but includes specific detailed examples is preferable in evaluation. 
+                          You need to avoid any potential bias of your evaluation and ensure that the order in which the responses were presented does not affect your judgment.
+                          Please output a label as "Better" or "Worse".
                           """
-    gpt3_eval_prompt = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
+    gpt3_eval_prompt = PromptTemplate(input_variables=["query", "answer_1", "answer_2"], template=_PROMPT_TEMPLATE)
     eval_model = OpenAI(temperature=0)
     evalchain = QAEvalChain.from_llm(llm=eval_model, prompt=gpt3_eval_prompt)
     # Grade the new model generated answer compared to the original one
-    grader = evalchain.evaluate(eval_qa, best_generated_answer, question_key="question", answer_key="answer", prediction_key="text")
+    grader = evalchain.evaluate(eval_qa, best_generated_answer, question_key="question", prediction_key="text")
 
     # Add the new evaluation results to a new evaluation set (w/ two answers version)
     # and the original evaluation set (cover the worse answers)
