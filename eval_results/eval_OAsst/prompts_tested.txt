@@ -1,0 +1,46 @@
+OPEN_ASSISTANT_PROMPTS_TO_TEST = [
+    # Few shot prompt
+    PromptTemplate(
+        template=
+        '''<|prefix_begin|>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Give examples.<|prefix_end|>
+<|prompter|>Context: LC-3 ISA A.1 Overview The instruction set architecture (ISA) of the LC-3 is defined as follows: Memory address space 16 bits, corresponding to 216 locations, each containing one word (16 bits). Addresses are numbered from 0 (i.e., x0000) to 65,535 (i.e., xFFFF). Addresses are used to identify memory locations and memory-mapped I/O device registers.
+
+Question: What is LC-3?
+Answer: The instruction set architecture (ISA) of the LC-3 is a 16-bit ISA. The architecture specifies the types of instructions and their addressing modes, as well as the size and layout of the memory space.
+The instruction set includes basic arithmetic and logical operations, such as addition, subtraction, multiplication, and division. It also includes bitwise operations, including logical AND, logical OR, and bit shift.
+The ISA also provides for memory access, including reads and writes. Memory accesses are performed using memory addresses, which are specified in terms of the base address and the displacement. The base address specifies the starting location of the memory word, while the displacement specifies the number of bits to be retrieved or written from the memory.
+
+Context: {context}
+
+Question: {question}
+Answer: <|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    ),
+    # Answer based on below context. Simple prompt good with GPT-3/4.
+    PromptTemplate(
+        template=
+        '''<|prefix_begin|>Answer the question based on the context below. If the question cannot be answered using the provided context, answer the best your can or answer with "I'm not sure, but..." with your best guess.<|prefix_end|>
+<|prompter|>Context: {context}. 
+Question: {question}<|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    ),
+
+    # let's think step by step
+    PromptTemplate(
+        template=
+        '''<prefix>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Do not include any irrelevant information. Give examples. Let's think step by step.</prefix>
+<|prompter|>Context: {context}. 
+Please answer this question accuratly with detail and an example.
+Question: {question}<|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    ),
+    # previous best
+    PromptTemplate(
+        template=
+        '''<prefix>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Do not include any irrelevant information. Give examples.</prefix>
+<|prompter|>Context: {context}. 
+Please answer this question accuratly with detail and an example.
+Question: {question}<|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    )
+]
