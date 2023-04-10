@@ -26,6 +26,7 @@ from langchain.llms import OpenAI
 from langchain.prompts import PromptTemplate
 from langchain.vectorstores import Pinecone
 from rouge import Rouge
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
@@ -37,26 +38,53 @@ load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_k
 # GLOBALS
 NUM_OF_DATAPOINTS_TO_EVALUATE = 100
 
+# TODO: Try better prompts. See prompting.py
+# Try putting the question at top vs bottom of context.
+# add instruction to every prompt?
+# Decent prompt: Answer the question based on the context below. If the question cannot be answered using the information provided answer with "I don't know"
+
 OPEN_ASSISTANT_PROMPTS_TO_TEST = [
+    # Few shot prompt
     PromptTemplate(
         template=
-        '''<prefix>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.</prefix>
+        '''<|prefix_begin|>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Give examples.<|prefix_end|>
+<|prompter|>Context: LC-3 ISA A.1 Overview The instruction set architecture (ISA) of the LC-3 is defined as follows: Memory address space 16 bits, corresponding to 216 locations, each containing one word (16 bits). Addresses are numbered from 0 (i.e., x0000) to 65,535 (i.e., xFFFF). Addresses are used to identify memory locations and memory-mapped I/O device registers.
+
+Question: What is LC-3?
+Answer: The instruction set architecture (ISA) of the LC-3 is a 16-bit ISA. The architecture specifies the types of instructions and their addressing modes, as well as the size and layout of the memory space.
+The instruction set includes basic arithmetic and logical operations, such as addition, subtraction, multiplication, and division. It also includes bitwise operations, including logical AND, logical OR, and bit shift.
+The ISA also provides for memory access, including reads and writes. Memory accesses are performed using memory addresses, which are specified in terms of the base address and the displacement. The base address specifies the starting location of the memory word, while the displacement specifies the number of bits to be retrieved or written from the memory.
+
+Context: {context}
+
+Question: {question}
+Answer: <|endoftext|><|assistant|>''',
+        input_variables=["question", "context"],
+    ),
+    # Answer based on below context. Simple prompt good with GPT-3/4.
+    PromptTemplate(
+        template=
+        '''<|prefix_begin|>Answer the question based on the context below. If the question cannot be answered using the provided context, answer the best your can or answer with "I'm not sure, but..." with your best guess.<|prefix_end|>
 <|prompter|>Context: {context}. 
 Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     ),
+
+    # let's think step by step
     PromptTemplate(
         template=
-        '''<|prefix_begin|>You are a helpful and precise assistant for answering factual questions about Electrical Engineering. If it's helpful, consider using the provided context to help with your answer.<|prefix_end|>
+        '''<prefix>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Do not include any irrelevant information. Give examples. Let's think step by step.</prefix>
 <|prompter|>Context: {context}. 
+Please answer this question accuratly with detail and an example.
 Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     ),
+    # previous best
     PromptTemplate(
         template=
         '''<prefix>Generate an objective and logical answer to this question, based on the context. The answer should be short, to-the-point while being substantial as per a freshmen-level language. Do not include any irrelevant information. Give examples.</prefix>
 <|prompter|>Context: {context}. 
-Please answer this question as accuratly as possible and with as much detail as possible.
+Please answer this question accuratly with detail and an example.
 Question: {question}<|endoftext|><|assistant|>''',
         input_variables=["question", "context"],
     )
@@ -120,7 +148,7 @@ class Evaluator():
     prompt = self.get_open_assistant_prompt(prompt_template, input_question).replace('\n', '')
     # print("PROMPT as sent to model:", prompt)
 
-    inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:0")  # always 0 for .generate()
+    inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:1")  # always 0 for .generate()
     tokens = self.model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=self.tokenizer.eos_token_id)
     temp_output = self.tokenizer.decode(tokens[0])
     output = temp_output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
@@ -154,8 +182,11 @@ class Evaluator():
     eval_qa = []
     best_generated_answer = []
     # Create a prompt for generate GPT-3 grade label
-
-    for question, ans in zip(eval_dataframe['prompt'], eval_dataframe['completion']):
+    prompts = list(eval_dataframe['prompt'])
+    completions = list(eval_dataframe['completion'])
+    for question, ans in tqdm(zip(prompts, completions),
+                              desc='Running OpenAssistant',
+                              bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'):
       temp_q_dict = {}
       temp_new_answer_dict = {}
       temp_q_dict['question'] = question
@@ -211,8 +242,9 @@ class Evaluator():
         num_better += 1
       elif grade_label == 'Worse':
         num_worse += 1
+      print(f"\t\tFraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}")
 
-    print(f"📊 Fraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}")
+    print(f"\n\n📊 Fraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}\n\n")
 
     # Write the new evaluation data to the JSON file
     now = datetime.now()
