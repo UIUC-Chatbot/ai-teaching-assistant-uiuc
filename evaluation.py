@@ -197,18 +197,19 @@ class Evaluator():
       best_generated_answer.append(temp_new_answer_dict)
 
     # RUN LangChain GPT-3 evaluation
+    # TODO: add some context in template of GPT-3
     _PROMPT_TEMPLATE = """You are an expert teaching assistant specialized in evaluating two students' answers in response to the instructor's question. 
                           You are referring to the following question:
                           {query}
                           Here is the answer from student 1:
-                          {answer_1}
+                          {result}
                           Here is the answer from student 2:
-                          {answer_2}
+                          {answer}
                           Please consider the relevance, accuracy, and fluency of their responses. The answer which is concise but includes specific detailed examples is preferable in evaluation. 
                           You need to avoid any potential bias of your evaluation and ensure that the order in which the responses were presented does not affect your judgment.
                           Based on student 1 please output a label for student 2 as "Better", "Worse" or "Same".
                           """
-    gpt3_eval_prompt = PromptTemplate(input_variables=["query", "answer_1", "answer_2"], template=_PROMPT_TEMPLATE)
+    gpt3_eval_prompt = PromptTemplate(input_variables=["query", "result", "answer"], template=_PROMPT_TEMPLATE)
     eval_model = OpenAI(temperature=0)
     evalchain = QAEvalChain.from_llm(llm=eval_model, prompt=gpt3_eval_prompt)
     # Grade the new model generated answer compared to the original one
