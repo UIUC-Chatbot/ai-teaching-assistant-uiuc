@@ -246,9 +246,7 @@ class Evaluator():
     print(f"\n\n✅ Fraction of answers that are 'better' {eval_name}: {num_better / NUM_OF_DATAPOINTS_TO_EVALUATE}\n\n")
 
     # Write the new evaluation data to the JSON file
-    now = datetime.now()
-    timestamp = now.strftime("%Y-%m-%d_%H-%M")
-    file_name = "./eval_results/" + eval_name + "_" + timestamp + ".json"
+    file_name = "./eval_results/" + make_workflow_id(eval_name) + ".json"
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     # Write the new evaluation data (w/ two compared answers verision) to the JSON file
     # The format of the JSON file includes: question, original answer, chatbot generated answer, GPT-3 evaluation label
@@ -290,6 +288,20 @@ class Evaluator():
     overall_rouge_score = np.mean(rouge_score_list)
     overall_bleu_score = np.mean(bleu_score_list)
     return overall_rouge_score, overall_bleu_score
+
+
+def make_workflow_id(name: str) -> str:
+  '''
+  🎯 Best practice to ensure unique Workflow names.
+  '''
+  from datetime import datetime
+
+  import pytz
+
+  # Timezones: US/{Pacific, Mountain, Central, Eastern}
+  # All timezones `pytz.all_timezones`. Always use caution with timezones.
+  curr_time = datetime.now(pytz.timezone('US/Central'))
+  return f"{name}-{str(curr_time.strftime('%h_%d,%Y@%H:%M'))}"
 
 
 def main():
