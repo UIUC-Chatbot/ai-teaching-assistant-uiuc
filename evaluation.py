@@ -31,17 +31,12 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from gpu_memory_utils import (get_device_with_most_free_memory, get_free_memory_dict, get_gpu_ids_with_sufficient_memory)
 
-# from main import TA_Pipeline
-
 load_dotenv(dotenv_path='/mnt/project/chatbotai/huggingface_cache/internal_api_keys.env', override=True)
 
 # GLOBALS
 NUM_OF_DATAPOINTS_TO_EVALUATE = 100
 
 # TODO: Try better prompts. See prompting.py
-# Try putting the question at top vs bottom of context.
-# add instruction to every prompt?
-# Decent prompt: Answer the question based on the context below. If the question cannot be answered using the information provided answer with "I don't know"
 
 OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     # Few shot prompt
@@ -156,10 +151,9 @@ class Evaluator():
     Main driver of evaluation loop. Currently just evalauting OPEN_ASSISTANT_PROMPTS_TO_TEST.
     Param: dataset 
     '''
-    points_to_evaluate = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']) - 1)
     eval_dataframe = pd.DataFrame()
-    eval_dataframe['prompt'] = eval_dataset['prompt'][:points_to_evaluate]
-    eval_dataframe['completion'] = eval_dataset['completion'][:points_to_evaluate]
+    eval_dataframe['prompt'] = eval_dataset['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
+    eval_dataframe['completion'] = eval_dataset['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
 
     # 1 eval per experimental condition.
     for i, prompt_template in enumerate(OPEN_ASSISTANT_PROMPTS_TO_TEST):
@@ -245,10 +239,10 @@ class Evaluator():
         num_worse += 1
       elif grade_label == 'Same':
         num_same += 1
-      print(f"\t\tFraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}")
+      print(f"\t\tFraction of answers that are 'better' {eval_name}: {num_better / (i+1)}")
 
-    print(f"\n\n🆗 Fraction of answers that are 'same' {eval_name}: {num_same / len(new_eval_set)}\n\n")
-    print(f"\n\n✅ Fraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}\n\n")
+    print(f"\n\n🆗 Fraction of answers that are 'same' {eval_name}: {num_same / NUM_OF_DATAPOINTS_TO_EVALUATE}\n\n")
+    print(f"\n\n✅ Fraction of answers that are 'better' {eval_name}: {num_better / NUM_OF_DATAPOINTS_TO_EVALUATE}\n\n")
 
     # Write the new evaluation data to the JSON file
     now = datetime.now()
@@ -277,7 +271,6 @@ class Evaluator():
     rouge_score_list, bleu_score_list = [], []
 
     eval_dataframe = pd.DataFrame()
-    points_to_evaluate = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
     eval_dataframe['prompt'] = eval_dataset['prompt'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
     eval_dataframe['completion'] = eval_dataset['completion'][:NUM_OF_DATAPOINTS_TO_EVALUATE]
 
@@ -303,6 +296,8 @@ def main():
       "kastan/rlhf-qa-conditional-generation-v2",
       split="train+valid",
   )
+  global NUM_OF_DATAPOINTS_TO_EVALUATE
+  NUM_OF_DATAPOINTS_TO_EVALUATE = min(NUM_OF_DATAPOINTS_TO_EVALUATE, len(eval_dataset['prompt']))
   evaluator = Evaluator()
   evaluator.main_eval_loop(eval_dataset)
 
