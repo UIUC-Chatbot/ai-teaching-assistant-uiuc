@@ -94,9 +94,6 @@ Question: {question}<|endoftext|><|assistant|>''',
 class Evaluator():
 
   def __init__(self) -> None:
-    # self.ta_pipeline = TA_Pipeline(dont_load_any_cuda=True)
-
-    # device = "cuda:0" if torch.cuda.is_available() else "cpu"
     self.model = AutoModelForCausalLM.from_pretrained("OpenAssistant/oasst-sft-1-pythia-12b",
                                                       device_map="sequential",
                                                       max_memory=get_free_memory_dict(leave_extra_memory_unused_GiB=5,
@@ -186,6 +183,7 @@ class Evaluator():
     completions = list(eval_dataframe['completion'])
     for question, ans in tqdm(zip(prompts, completions),
                               desc='Running OpenAssistant',
+                              total=len(prompts),
                               bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]'):
       temp_q_dict = {}
       temp_new_answer_dict = {}
@@ -227,6 +225,7 @@ class Evaluator():
     new_eval_set = []
     num_better = 0
     num_worse = 0
+    num_same = 0
     # updated_eval_set = []
     for i, (q, a) in enumerate(zip(eval_dataframe['prompt'], eval_dataframe['completion'])):
       new_generated_answer = best_generated_answer[i]['text']
@@ -244,9 +243,12 @@ class Evaluator():
         num_better += 1
       elif grade_label == 'Worse':
         num_worse += 1
+      elif grade_label == 'Same':
+        num_same += 1
       print(f"\t\tFraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}")
 
-    print(f"\n\n📊 Fraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}\n\n")
+    print(f"\n\n🆗 Fraction of answers that are 'same' {eval_name}: {num_same / len(new_eval_set)}\n\n")
+    print(f"\n\n✅ Fraction of answers that are 'better' {eval_name}: {num_better / len(new_eval_set)}\n\n")
 
     # Write the new evaluation data to the JSON file
     now = datetime.now()
