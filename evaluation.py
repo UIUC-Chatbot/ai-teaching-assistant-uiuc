@@ -184,9 +184,6 @@ class Evaluator():
       temp_new_answer_dict = {}
       temp_q_dict['question'] = question
       temp_q_dict['answer'] = ans
-      
-      # add context to answer list
-      temp_q_dict['context'] = self.retrieve_contexts_from_pinecone(question, topk=1)[0]
 
       # generate answer using OpenAssistant
       generated_answer = self.open_assistant(prompt_template, question)
