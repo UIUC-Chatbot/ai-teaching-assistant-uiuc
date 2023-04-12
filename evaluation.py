@@ -211,7 +211,6 @@ class Evaluator():
                           {result}
                           Please consider the relevance, accuracy, correctness, and fluency of their responses. The answer which is concise but includes specific detailed examples is preferable in evaluation. 
                           You need to avoid any potential bias in your evaluation and ensure that the order in which the responses were presented does not affect your judgment.
-                          The context is for your reference to check the correctness of student answers regarding the given question.
                           Based on student 1, please output a label for student 2 as "Better", "Worse" or "Same".
                           """
     gpt3_eval_prompt = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
