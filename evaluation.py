@@ -38,6 +38,7 @@ NUM_OF_DATAPOINTS_TO_EVALUATE = 100
 
 # TODO: Try better prompts. See prompting.py
 
+
 OPEN_ASSISTANT_PROMPTS_TO_TEST = [
     # Few shot prompt
     PromptTemplate(
@@ -140,7 +141,7 @@ class Evaluator():
     prompt = self.get_open_assistant_prompt(prompt_template, input_question).replace('\n', '')
     # print("PROMPT as sent to model:", prompt)
 
-    inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:1")  # always 0 for .generate()
+    inputs = self.tokenizer(prompt, return_tensors="pt").to("cuda:0")  # always 0 for .generate()
     tokens = self.model.generate(**inputs, max_new_tokens=500, typical_p=0.2, temperature=0.6, pad_token_id=self.tokenizer.eos_token_id)
     temp_output = self.tokenizer.decode(tokens[0])
     output = temp_output.split('<|assistant|>')[1].split('<|endoftext|>')[0]
@@ -183,6 +184,9 @@ class Evaluator():
       temp_new_answer_dict = {}
       temp_q_dict['question'] = question
       temp_q_dict['answer'] = ans
+      
+      # add context to answer list
+      temp_q_dict['context'] = self.retrieve_contexts_from_pinecone(question, topk=1)[0]
 
       # generate answer using OpenAssistant
       generated_answer = self.open_assistant(prompt_template, question)
@@ -198,22 +202,23 @@ class Evaluator():
 
     # RUN LangChain GPT-3 evaluation
     # TODO: add some context in template of GPT-3
-    _PROMPT_TEMPLATE = """You are an expert teaching assistant specialized in evaluating two students' answers in response to the instructor's question. 
+    _PROMPT_TEMPLATE = """You are an expert teaching assistant specialized in evaluating two students' answers in response to the instructor's question.
                           You are referring to the following question:
                           {query}
                           Here is the answer from student 1:
-                          {result}
-                          Here is the answer from student 2:
                           {answer}
-                          Please consider the relevance, accuracy, and fluency of their responses. The answer which is concise but includes specific detailed examples is preferable in evaluation. 
-                          You need to avoid any potential bias of your evaluation and ensure that the order in which the responses were presented does not affect your judgment.
-                          Based on student 1 please output a label for student 2 as "Better", "Worse" or "Same".
+                          Here is the answer from student 2:
+                          {result}
+                          Please consider the relevance, accuracy, correctness, and fluency of their responses. The answer which is concise but includes specific detailed examples is preferable in evaluation. 
+                          You need to avoid any potential bias in your evaluation and ensure that the order in which the responses were presented does not affect your judgment.
+                          The context is for your reference to check the correctness of student answers regarding the given question.
+                          Based on student 1, please output a label for student 2 as "Better", "Worse" or "Same".
                           """
-    gpt3_eval_prompt = PromptTemplate(input_variables=["query", "result", "answer"], template=_PROMPT_TEMPLATE)
+    gpt3_eval_prompt = PromptTemplate(input_variables=["query", "answer", "result"], template=_PROMPT_TEMPLATE)
     eval_model = OpenAI(temperature=0)
     evalchain = QAEvalChain.from_llm(llm=eval_model, prompt=gpt3_eval_prompt)
     # Grade the new model generated answer compared to the original one
-    grader = evalchain.evaluate(eval_qa, best_generated_answer, question_key="question", prediction_key="text")
+    grader = evalchain.evaluate(eval_qa, best_generated_answer, question_key="question", answer_key="answer", prediction_key="text")
 
     # Add the new evaluation results to a new evaluation set (w/ two answers version)
     # and the original evaluation set (cover the worse answers)
